@@ -1,0 +1,407 @@
+const EXAMPLES = [
+  "For God so loved the world that he gave his only begotten Son, that whosoever believeth in him should not perish but have everlasting life.",
+  "Even though I walk through the darkest valley I will fear no evil, for you are with me. Your rod and your staff they comfort me.",
+  "Think about that young man who left home, wasted everything his father gave him, ended up starving among pigs — and then came to his senses and returned home. His father saw him from far off and ran to embrace him.",
+  "We are more than conquerors through him who loved us. Nothing — not death, not life, not angels or rulers — can separate us from the love of God. So put on the whole armor of God and stand firm."
+];
+
+const ALL_TRANSLATIONS  = ["KJV", "NIV", "NKJV", "NLT", "AMP"];
+const SILENCE_DELAY     = 1500;   // ms of silence before auto-detect triggers
+const MIN_NEW_CHARS     = 8;      // minimum new characters before triggering
+
+let recognition      = null;
+let isListening      = false;
+let lastDetections   = [];
+let autoDetectTimer  = null;
+let lastProcessedLen = 0;
+let cardCounter      = 0;
+const seenReferences = new Set(); // tracks references already shown this session
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function getMinConfidence() {
+  return document.getElementById('confidenceFilter')?.value || 'medium';
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function loadEx(i) {
+  const ta = document.getElementById('transcriptBox');
+  ta.value = EXAMPLES[i];
+  lastProcessedLen = 0;
+  scheduleAutoDetect();
+}
+
+function setStatus(msg) {
+  document.getElementById('statusLine').innerHTML = msg;
+}
+
+// ── Auto-detect scheduler ─────────────────────────────────────────────────────
+// Called whenever new text arrives (mic result OR keystroke OR paste)
+
+// Regex to spot explicit reference calls in new text
+// Matches: "let's have John 3:16", "turn to Romans 8:28", bare "John 3:16", etc.
+const DIRECT_REF_RE = /(?:let['']?s\s+(?:have|read|go\s+to|open\s+to|look\s+at)|turn\s+to|open\s+to|read|go\s+to)?\s*(?:[123]\s*)?(?:genesis|exodus|leviticus|numbers|deuteronomy|joshua|judges|ruth|samuel|kings|chronicles|ezra|nehemiah|esther|job|psalms?|proverbs?|ecclesiastes|song|isaiah|jeremiah|lamentations|ezekiel|daniel|hosea|joel|amos|obadiah|jonah|micah|nahum|habakkuk|zephaniah|haggai|zechariah|malachi|matthew|mark|luke|john|acts|romans|corinthians?|galatians|ephesians|philippians|colossians|thessalonians?|timothy|titus|philemon|hebrews|james|peter|jude|revelation|gen|ex|lev|num|deut|josh|judg|ps|prov|eccl|isa|jer|lam|ezek|dan|hos|zech|mal|matt|mk|lk|jn|rom|gal|eph|phil|col|thess|tim|heb|jas|rev)\s+\d+:\d+/i;
+
+function scheduleAutoDetect() {
+  const ta = document.getElementById('transcriptBox');
+  const newText = ta.value.trim().slice(lastProcessedLen).trim();
+
+  // If the new text contains an explicit reference — detect immediately, no wait
+  if (newText.length >= MIN_NEW_CHARS && DIRECT_REF_RE.test(newText)) {
+    clearTimeout(autoDetectTimer);
+    detectAndAppend(newText);
+    return;
+  }
+
+  // Otherwise wait for silence before detecting
+  clearTimeout(autoDetectTimer);
+  autoDetectTimer = setTimeout(() => {
+    const fresh = document.getElementById('transcriptBox').value.trim().slice(lastProcessedLen).trim();
+    if (fresh.length >= MIN_NEW_CHARS) {
+      detectAndAppend(fresh);
+    }
+  }, SILENCE_DELAY);
+}
+
+// ── Textarea event listeners — auto-detect on type/paste ─────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  const ta = document.getElementById('transcriptBox');
+
+  // Fill in the OBS overlay URL dynamically based on current host
+  const overlayUrlEl = document.getElementById('overlayUrl');
+  if (overlayUrlEl) {
+    overlayUrlEl.textContent = `${window.location.origin}/overlay`;
+  }
+
+  // Typing
+  ta.addEventListener('input', () => {
+    scheduleAutoDetect();
+  });
+
+  // Paste — give browser time to update value first
+  ta.addEventListener('paste', () => {
+    setTimeout(scheduleAutoDetect, 50);
+  });
+});
+
+// ── Microphone ────────────────────────────────────────────────────────────────
+
+function toggleMic() {
+  if (!SR) { setStatus('Web Speech API not supported — use Chrome'); return; }
+  isListening ? stopListening() : startListening();
+}
+
+function startListening() {
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+
+  const ta = document.getElementById('transcriptBox');
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('micBtn').className = 'mic-btn listening';
+    document.getElementById('micLabel').innerHTML = '<span class="live-dot"></span>&nbsp;Listening&hellip;';
+    setStatus('Listening — speak now');
+  };
+
+  recognition.onresult = e => {
+    const transcript = e.results[e.results.length - 1][0].transcript.trim();
+    if (!transcript) return;
+
+    ta.value = (ta.value.trim() ? ta.value.trim() + ' ' : '') + transcript;
+    ta.scrollTop = ta.scrollHeight;
+
+    // Schedule auto-detect after speech silence
+    scheduleAutoDetect();
+  };
+
+  recognition.onerror = e => {
+    if (e.error !== 'no-speech') {
+      setStatus('Mic error: ' + e.error);
+      stopListening();
+    }
+  };
+
+  recognition.onend = () => {
+    if (isListening) {
+      try { recognition.start(); } catch(e) {}
+    }
+  };
+
+  recognition.start();
+}
+
+function stopListening() {
+  isListening = false;
+  clearTimeout(autoDetectTimer);
+  if (recognition) { recognition.onend = null; recognition.stop(); }
+  document.getElementById('micBtn').className = 'mic-btn';
+  document.getElementById('micLabel').textContent = 'Start Listening';
+  setStatus('Click the button and speak');
+
+  // Detect any remaining unprocessed text
+  const ta = document.getElementById('transcriptBox');
+  const remaining = ta.value.trim().slice(lastProcessedLen).trim();
+  if (remaining.length >= MIN_NEW_CHARS) detectAndAppend(remaining);
+}
+
+// ── Clear ─────────────────────────────────────────────────────────────────────
+
+function clearAll() {
+  clearTimeout(autoDetectTimer);
+  lastProcessedLen = 0;
+  lastDetections = [];
+  cardCounter = 0;
+  seenReferences.clear();
+  document.getElementById('transcriptBox').value = '';
+  document.getElementById('results').innerHTML = '<div class="empty">Detections will appear here</div>';
+  document.getElementById('errorBox').className = 'error-box';
+  document.getElementById('clipboardBtn').disabled = true;
+  setStatus('Click the button and speak');
+}
+
+// ── Reset results panel (without clearing transcript) ────────────────────────
+
+function resetResults() {
+  clearTimeout(autoDetectTimer);
+  lastProcessedLen = 0;
+  lastDetections = [];
+  cardCounter = 0;
+  seenReferences.clear();
+  document.getElementById('results').innerHTML = '<div class="empty">Detections will appear here</div>';
+  document.getElementById('errorBox').className = 'error-box';
+  document.getElementById('clipboardBtn').disabled = true;
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+
+function typeLabel(t) {
+  return {
+    direct_quote:      'Direct Quote',
+    paraphrase:        'Paraphrase',
+    semantic_allusion: 'Semantic Allusion',
+    story_reference:   'Story Reference',
+    reference_call:    'Called Reference'
+  }[t] || t;
+}
+
+function buildTranslationsBlock(translations, id) {
+  const hasAny = translations && Object.keys(translations).length > 0;
+  const bodyId = `trans-body-${id}`;
+
+  const rows = ALL_TRANSLATIONS.map(t => {
+    const text = translations && translations[t];
+    return `
+      <div class="translation-row">
+        <span class="trans-label">${t}</span>
+        ${text
+          ? `<span class="trans-text">${text}</span>`
+          : `<span class="trans-missing">Not loaded — add ${t.toLowerCase()}.json to bibles/ folder</span>`}
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="translations-section">
+      <div class="translations-toggle open" onclick="toggleTranslations('${bodyId}', this)">
+        <span>All Translations (${hasAny ? Object.keys(translations).length : 0} / ${ALL_TRANSLATIONS.length})</span>
+        <span class="toggle-arrow">&#9660;</span>
+      </div>
+      <div class="translations-body open" id="${bodyId}">
+        ${rows}
+      </div>
+    </div>`;
+}
+
+function toggleTranslations(id, toggleEl) {
+  const body = document.getElementById(id);
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  toggleEl.classList.toggle('open', !isOpen);
+}
+
+// ── Core detection — appends results, never replaces ─────────────────────────
+
+async function detectAndAppend(text) {
+  if (!text || text.length < MIN_NEW_CHARS) return;
+
+  // Advance the processed cursor immediately so overlapping calls don't re-send
+  const ta = document.getElementById('transcriptBox');
+  lastProcessedLen = ta.value.trim().length;
+
+  const results = document.getElementById('results');
+
+  // Remove empty placeholder
+  const placeholder = results.querySelector('.empty');
+  if (placeholder) placeholder.remove();
+
+  // Inline loading indicator
+  const loaderId = `loader-${Date.now()}`;
+  const loader = document.createElement('div');
+  loader.id = loaderId;
+  loader.className = 'detection-loader';
+  loader.innerHTML = `<div class="spinner-ring" style="width:18px;height:18px;border-width:1.5px"></div><span>Detecting&hellip;</span>`;
+  results.appendChild(loader);
+  results.scrollTop = results.scrollHeight;
+
+  try {
+    const res = await fetch('/detect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, min_confidence: getMinConfidence() })
+    });
+
+    document.getElementById(loaderId)?.remove();
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Detection failed');
+    }
+
+    const data = await res.json();
+    const dets = data.detections || [];
+
+    if (!dets.length) {
+      const note = document.createElement('div');
+      note.className = 'no-detect-note';
+      note.textContent = 'No scripture detected in last segment.';
+      results.appendChild(note);
+      setTimeout(() => note.remove(), 3500);
+      return;
+    }
+
+    // Segment divider
+    const divider = document.createElement('div');
+    divider.className = 'segment-divider';
+    divider.innerHTML = `<span class="segment-quote">"${text.length > 80 ? text.slice(0, 80) + '&hellip;' : text}"</span>`;
+    results.appendChild(divider);
+
+    // Filter out references already shown this session
+    const newDets = dets.filter(d => {
+      const ref = d.reference || '';
+      if (seenReferences.has(ref)) return false;
+      seenReferences.add(ref);
+      return true;
+    });
+
+    if (!newDets.length) {
+      const note = document.createElement('div');
+      note.className = 'no-detect-note';
+      note.textContent = 'References already shown this session.';
+      results.appendChild(note);
+      setTimeout(() => note.remove(), 3500);
+      return;
+    }
+
+    newDets.forEach(d => {
+      cardCounter++;
+      lastDetections.push(d);
+
+      const cardId = `card-${cardCounter}`;
+      const card = document.createElement('div');
+      card.className = 'detection-card';
+      card.id = cardId;
+      card.innerHTML = `
+        <div class="detection-top">
+          <span class="type-pill tp-${d.type}">${typeLabel(d.type)}</span>
+          <span class="ref-text">${d.reference || ''}</span>
+          <span class="confidence-badge cb-${d.confidence}">${d.confidence}</span>
+          <button class="card-delete-btn" onclick="deleteCard('${cardId}', ${cardCounter - 1})" title="Dismiss">&#x2715;</button>
+        </div>
+        <div class="detection-body">
+          <div class="phrase-block">"${d.detected_phrase || ''}"</div>
+          ${d.explanation ? `<div class="expl">${d.explanation}</div>` : ''}
+          ${buildTranslationsBlock(d.translations, cardCounter)}
+        </div>`;
+      results.appendChild(card);
+    });
+
+    document.getElementById('clipboardBtn').disabled = false;
+    results.scrollTop = results.scrollHeight;
+
+    // Auto-reset after successful detection — clears results so next detection
+    // always gets a clean panel. Runs after a short delay so user can read results.
+    setTimeout(() => {
+      resetResults();
+    }, 13000); // 13 seconds to read, then clears for next detection
+
+  } catch (err) {
+    document.getElementById(loaderId)?.remove();
+    const eb = document.createElement('div');
+    eb.className = 'error-box visible';
+    eb.style.marginTop = '0.5rem';
+    eb.textContent = 'Error: ' + err.message;
+    results.appendChild(eb);
+  }
+}
+
+// Manual detect — sends only unprocessed text
+async function detect() {
+  const ta = document.getElementById('transcriptBox');
+  const newText = ta.value.trim().slice(lastProcessedLen).trim();
+  const textToSend = newText.length >= MIN_NEW_CHARS ? newText : ta.value.trim();
+  if (textToSend) {
+    clearTimeout(autoDetectTimer);
+    await detectAndAppend(textToSend);
+  }
+}
+
+// Ctrl/Cmd + Enter shortcut
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') detect();
+});
+
+// ── Delete single card ───────────────────────────────────────────────────────
+
+function deleteCard(cardId, detectionIndex) {
+  // Remove the card element
+  const card = document.getElementById(cardId);
+  if (!card) return;
+
+  // Also remove the segment divider above it if it has no siblings after removal
+  const prev = card.previousElementSibling;
+
+  card.style.transition = 'opacity 0.2s, transform 0.2s';
+  card.style.opacity = '0';
+  card.style.transform = 'translateX(12px)';
+
+  setTimeout(() => {
+    card.remove();
+    // Remove orphaned segment divider (divider with no detection card after it)
+    if (prev && prev.classList.contains('segment-divider')) {
+      const next = prev.nextElementSibling;
+      if (!next || next.classList.contains('segment-divider') || !next.classList.contains('detection-card')) {
+        prev.remove();
+      }
+    }
+    // Remove from lastDetections and seenReferences so it can be detected again
+    const removed = lastDetections.splice(detectionIndex, 1);
+    if (removed[0]?.reference) seenReferences.delete(removed[0].reference);
+    // If no cards left, show empty state
+    const results = document.getElementById('results');
+    if (!results.querySelector('.detection-card')) {
+      results.innerHTML = '<div class="empty">Detections will appear here</div>';
+      document.getElementById('clipboardBtn').disabled = true;
+    }
+  }, 200);
+}
+
+// ── Clipboard ─────────────────────────────────────────────────────────────────
+
+function copyLastToClipboard() {
+  if (!lastDetections.length) return;
+  const lines = lastDetections.map(d => {
+    const kjvText = d.translations && d.translations.KJV ? d.translations.KJV : '';
+    return `${d.reference}\n${kjvText}`;
+  });
+  navigator.clipboard.writeText(lines.join('\n\n')).then(() => {
+    const btn = document.getElementById('clipboardBtn');
+    const lbl = document.getElementById('clipboardBtnLabel');
+    btn.classList.add('copied');
+    lbl.textContent = 'Copied!';
+    setTimeout(() => { btn.classList.remove('copied'); lbl.textContent = 'Copy Last Detection'; }, 2000);
+  });
+}

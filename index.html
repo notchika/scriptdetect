@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Scripture Detector</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,600&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>Live Scripture Detector</h1>
+    <p>Speak any Bible verse &mdash; even paraphrased</p>
+  </div>
+
+  <div class="toolbar">
+    <a class="toolbar-btn" href="/overlay" target="_blank">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      OBS Overlay
+    </a>
+    <button class="toolbar-btn" id="clipboardBtn" onclick="copyLastToClipboard()" disabled>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <span id="clipboardBtnLabel">Copy Last Detection</span>
+    </button>
+    <div class="confidence-filter">
+      <label for="confidenceFilter">Min confidence:</label>
+      <select id="confidenceFilter">
+        <option value="high">High only</option>
+        <option value="medium" selected>High &amp; Medium</option>
+        <option value="low">All results</option>
+      </select>
+    </div>
+    <div class="toolbar-hint" id="overlayHint">OBS: add Browser Source → <span id="overlayUrl"></span></div>
+  </div>
+
+  <div class="controls">
+    <button class="mic-btn" id="micBtn" onclick="toggleMic()">
+      <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="2" width="6" height="11" rx="3"/>
+        <path d="M5 10a7 7 0 0 0 14 0"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+        <line x1="8" y1="22" x2="16" y2="22"/>
+      </svg>
+      <span id="micLabel">Start Listening</span>
+    </button>
+  </div>
+
+  <div class="status-line" id="statusLine">Click the button and speak</div>
+
+  <div class="transcript-area">
+    <div class="transcript-label">Transcript</div>
+    <textarea class="transcript-box" id="transcriptBox"
+      placeholder="Transcribed speech will appear here, or type / paste text directly&hellip;" rows="4"></textarea>
+    <div class="transcript-actions">
+      <button class="btn-sm" onclick="clearAll()">Clear</button>
+      <button class="btn-sm btn-detect-sm" onclick="detect()">Detect Scripture</button>
+    </div>
+  </div>
+
+  <div class="examples-row">
+    <span style="font-size:11px;color:var(--silver-dim);align-self:center">Try:</span>
+    <button class="ex-chip" onclick="loadEx(0)">John 3:16</button>
+    <button class="ex-chip" onclick="loadEx(1)">Psalm 23 allusion</button>
+    <button class="ex-chip" onclick="loadEx(2)">Prodigal son</button>
+    <button class="ex-chip" onclick="loadEx(3)">Sermon excerpt</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="error-box" id="errorBox"></div>
+  <div class="spinner" id="spinner"><div class="spinner-ring"></div><span>Detecting scripture&hellip;</span></div>
+
+  <div class="results" id="results">
+    <div class="empty">Detections will appear here</div>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
