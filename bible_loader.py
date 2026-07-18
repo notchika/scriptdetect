@@ -19,12 +19,25 @@ def load_bibles(bible_dir: str = None):
             f"Expected: {[t + '.json' for t in TRANSLATIONS]}"
         )
 
+    # Build a case-insensitive map of actual files in the bibles directory.
+    # This matters because Windows filesystems are case-insensitive but Linux
+    # (which Render runs on) is case-sensitive — a file named "KJV.json" locally
+    # would silently fail to load on deployment if we only check "kjv.json".
+    actual_files = {f.lower(): f for f in os.listdir(bible_dir) if f.lower().endswith(".json")}
+
     loaded = []
+    skipped = []
     for translation in TRANSLATIONS:
-        path = os.path.join(bible_dir, f"{translation}.json")
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+        expected_name = f"{translation}.json"
+        actual_name = actual_files.get(expected_name.lower())
+
+        if not actual_name:
+            skipped.append(translation.upper())
+            continue
+
+        path = os.path.join(bible_dir, actual_name)
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
             # Detect structure: flat {"Genesis 1:1": "..."} vs nested {"Genesis": {"1": {"1": "..."}}}
             sample_key = list(data.keys())[0]
@@ -48,6 +61,9 @@ def load_bibles(bible_dir: str = None):
         raise FileNotFoundError(f"No Bible JSON files found in '{bible_dir}'.")
 
     print(f"[Bible Loader] Loaded: {', '.join(loaded)} — {sum(len(v) for v in _bibles.values()):,} total verses")
+    if skipped:
+        print(f"[Bible Loader] WARNING — file not found for: {', '.join(skipped)} "
+              f"(check filename spelling/case in bibles/ folder)")
 
     # Print a sample key from each to verify correct flattening
     for t in loaded:

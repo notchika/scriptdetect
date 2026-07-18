@@ -321,12 +321,7 @@ async function detectAndAppend(text) {
 
     document.getElementById('clipboardBtn').disabled = false;
     results.scrollTop = results.scrollHeight;
-
-    // Auto-reset after successful detection — clears results so next detection
-    // always gets a clean panel. Runs after a short delay so user can read results.
-    setTimeout(() => {
-      resetResults();
-    }, 13000); // 13 seconds to read, then clears for next detection
+    // No auto-reset — cards stay until manually cleared or individually dismissed
 
   } catch (err) {
     document.getElementById(loaderId)?.remove();
