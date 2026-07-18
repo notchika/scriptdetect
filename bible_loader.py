@@ -114,12 +114,56 @@ def _extract_text(value) -> str:
     return str(value).strip()
 
 
+# Common book name variants across different Bible JSON sources.
+# Maps a canonical form to alternate spellings — checked in order until one hits.
+BOOK_VARIANTS = {
+    "Psalm": ["Psalms"],
+    "Psalms": ["Psalm"],
+    "Song Of Solomon": ["Song Of Songs", "Songs Of Solomon"],
+    "Song Of Songs": ["Song Of Solomon", "Songs Of Solomon"],
+    "Revelation": ["Revelations"],
+    "Revelations": ["Revelation"],
+    "1 Corinthians": ["I Corinthians"],
+    "2 Corinthians": ["II Corinthians"],
+    "1 Kings": ["I Kings"],
+    "2 Kings": ["II Kings"],
+    "1 Samuel": ["I Samuel"],
+    "2 Samuel": ["II Samuel"],
+    "1 Chronicles": ["I Chronicles"],
+    "2 Chronicles": ["II Chronicles"],
+    "1 Thessalonians": ["I Thessalonians"],
+    "2 Thessalonians": ["II Thessalonians"],
+    "1 Timothy": ["I Timothy"],
+    "2 Timothy": ["II Timothy"],
+    "1 Peter": ["I Peter"],
+    "2 Peter": ["II Peter"],
+    "1 John": ["I John"],
+    "2 John": ["II John"],
+    "3 John": ["III John"],
+}
+
+
 def lookup(reference: str, translation: str) -> str | None:
     t = translation.lower().strip()
     if t not in _bibles:
         return None
+
     key = _normalize_key(reference)
-    return _bibles[t].get(key)
+    result = _bibles[t].get(key)
+    if result:
+        return result
+
+    # Fallback — try alternate book name spellings (e.g. Psalm vs Psalms)
+    match = re.match(r'^(.*?)\s+(\d+:\d+)$', key)
+    if match:
+        book, cv = match.group(1), match.group(2)
+        for alt_book in BOOK_VARIANTS.get(book, []):
+            alt_key = f"{alt_book} {cv}"
+            result = _bibles[t].get(alt_key)
+            if result:
+                return result
+
+    return None
 
 
 def get_all_verses(translation: str) -> dict:
