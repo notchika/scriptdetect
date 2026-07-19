@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scripture Overlay</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* Fully transparent — OBS will key this */
+  body {
+    background: transparent;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 0 80px 60px;
+  }
+
+  .lower-third {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-width: 1100px;
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    pointer-events: none;
+  }
+
+  .lower-third.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .lt-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: #C9A84C;
+    padding: 6px 18px 6px 14px;
+    border-radius: 4px 4px 0 0;
+    width: fit-content;
+  }
+
+  .lt-type {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #1A1200;
+  }
+
+  .lt-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.3);
+  }
+
+  .lt-ref {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: #1A1200;
+    letter-spacing: 0.02em;
+  }
+
+  .lt-body {
+    background: rgba(10, 14, 30, 0.92);
+    backdrop-filter: blur(8px);
+    border-left: 4px solid #C9A84C;
+    padding: 14px 22px;
+    border-radius: 0 4px 4px 4px;
+  }
+
+  .lt-verse {
+    font-family: 'Lora', serif;
+    font-size: 22px;
+    font-style: italic;
+    color: #E8EDF5;
+    line-height: 1.55;
+    margin-bottom: 6px;
+  }
+
+  .lt-meta {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: rgba(168, 180, 204, 0.7);
+    letter-spacing: 0.04em;
+  }
+
+  /* Progress bar showing auto-clear countdown */
+  .lt-progress {
+    height: 2px;
+    background: #C9A84C;
+    width: 100%;
+    transform-origin: left;
+    transform: scaleX(1);
+    transition: transform linear;
+    margin-top: 2px;
+    border-radius: 0 0 2px 2px;
+  }
+</style>
+</head>
+<body>
+
+<div class="lower-third" id="lowerThird">
+  <div class="lt-header">
+    <span class="lt-type" id="ltType">Direct Quote</span>
+    <span class="lt-dot"></span>
+    <span class="lt-ref" id="ltRef">John 3:16</span>
+  </div>
+  <div class="lt-body">
+    <div class="lt-verse" id="ltVerse"></div>
+    <div class="lt-meta" id="ltMeta"></div>
+    <div class="lt-progress" id="ltProgress"></div>
+  </div>
+</div>
+
+<script>
+const DISPLAY_SECONDS = 12; // how long the overlay stays visible
+const POLL_INTERVAL = 2000; // check for new detections every 2s
+
+let currentRef = '';
+let hideTimer = null;
+let progressTimer = null;
+
+const el = {
+  card: document.getElementById('lowerThird'),
+  type: document.getElementById('ltType'),
+  ref:  document.getElementById('ltRef'),
+  verse: document.getElementById('ltVerse'),
+  meta: document.getElementById('ltMeta'),
+  progress: document.getElementById('ltProgress'),
+};
+
+function typeLabel(t) {
+  return {
+    direct_quote:      'Direct Quote',
+    paraphrase:         'Paraphrase',
+    semantic_allusion:  'Allusion',
+    story_reference:    'Story Reference',
+    reference_call:     'Reference Called'
+  }[t] || 'Scripture';
+}
+
+function showVerse(data) {
+  if (!data.reference || !data.text) return;
+
+  // Don't re-show the same verse while it's already visible
+  if (data.reference === currentRef && el.card.classList.contains('visible')) return;
+
+  currentRef = data.reference;
+
+  el.type.textContent = typeLabel(data.type);
+  el.ref.textContent = data.reference;
+  el.verse.textContent = data.text;
+  el.meta.textContent = data.translation || 'KJV';
+
+  // Reset and start progress bar
+  el.progress.style.transition = 'none';
+  el.progress.style.transform = 'scaleX(1)';
+
+  el.card.classList.add('visible');
+
+  // Start countdown progress bar
+  requestAnimationFrame(() => {
+    el.progress.style.transition = `transform ${DISPLAY_SECONDS}s linear`;
+    el.progress.style.transform = 'scaleX(0)';
+  });
+
+  // Auto-hide after DISPLAY_SECONDS
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    el.card.classList.remove('visible');
+    currentRef = '';
+    // Clear on server too
+    fetch('/overlay/latest', { method: 'DELETE' });
+  }, DISPLAY_SECONDS * 1000);
+}
+
+async function poll() {
+  try {
+    const res = await fetch('/overlay/latest');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.reference) {
+        showVerse(data);
+      }
+    }
+  } catch (e) {
+    // Server not ready yet — silent fail
+  }
+}
+
+// Poll immediately then on interval
+poll();
+setInterval(poll, POLL_INTERVAL);
+</script>
+</body>
+</html>
