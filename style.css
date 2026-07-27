@@ -700,3 +700,63 @@
     display: flex;
     justify-content: flex-end;
   }
+
+  /* Search mic button */
+  .search-mic-btn {
+    background: var(--navy-card);
+    border: 1px solid var(--navy-border);
+    border-radius: var(--radius-sm);
+    color: var(--silver);
+    padding: 0.55rem 0.7rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .search-mic-btn:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+  .search-mic-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .search-mic-btn.listening {
+    border-color: var(--rose);
+    color: var(--rose);
+    background: rgba(212,107,107,0.08);
+    animation: pulse-border 1.2s ease-in-out infinite;
+  }
+
+  /* Search result — all translations layout */
+  .search-translations {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--navy-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .search-translation-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-right: 0.6rem;
+  }
+
+  .search-translation-row .trans-text { flex: 1; }
+
+  .btn-send-live-sm {
+    flex-shrink: 0;
+    background: rgba(76,175,138,0.12);
+    border: 1px solid rgba(76,175,138,0.35);
+    color: var(--green);
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 0.35rem 0.7rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .btn-send-live-sm:hover { background: rgba(76,175,138,0.22); }
+
+  /* Nav hint styling in live status */
+  .live-status strong { color: var(--gold); }

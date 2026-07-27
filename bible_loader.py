@@ -7,6 +7,10 @@ TRANSLATIONS = ["kjv", "amp", "nlt", "niv", "nkjv"]
 # { "kjv": {"Genesis 1:1": "In the beginning..."}, ... }
 _bibles: dict = {}
 
+# Navigation index: { translation: { book: { chapter_int: sorted [verse_int, ...] } } }
+# Built once at load time so → / ← verse navigation is instant.
+_verse_index: dict = {}
+
 
 def load_bibles(bible_dir: str = None):
     if bible_dir is None:
@@ -64,6 +68,11 @@ def load_bibles(bible_dir: str = None):
     if skipped:
         print(f"[Bible Loader] WARNING — file not found for: {', '.join(skipped)} "
               f"(check filename spelling/case in bibles/ folder)")
+
+    # Build navigation index for every loaded translation
+    for t in loaded:
+        _build_verse_index(t.lower())
+    print(f"[Bible Loader] Navigation index built for {len(_verse_index)} translation(s)")
 
     # Print a sample key from each to verify correct flattening
     for t in loaded:
@@ -164,6 +173,95 @@ def lookup(reference: str, translation: str) -> str | None:
                 return result
 
     return None
+
+
+def _build_verse_index(translation: str):
+    """
+    Parse every key in a translation's verse dict once and build a lookup
+    structure for fast next/previous verse navigation:
+        { book: { chapter_int: sorted [verse_int, ...] } }
+    """
+    verses = _bibles.get(translation, {})
+    index = {}
+
+    ref_pattern = re.compile(r'^(.*?)\s+(\d+):(\d+)$')
+
+    for key in verses.keys():
+        match = ref_pattern.match(key)
+        if not match:
+            continue
+        book, chapter_str, verse_str = match.groups()
+        chapter, verse = int(chapter_str), int(verse_str)
+
+        index.setdefault(book, {}).setdefault(chapter, []).append(verse)
+
+    # Sort verse lists for predictable next/prev traversal
+    for book in index:
+        for chapter in index[book]:
+            index[book][chapter].sort()
+
+    _verse_index[translation] = index
+
+
+def get_next_reference(reference: str, translation: str) -> str | None:
+    """
+    Given 'Book Chapter:Verse', return the next verse reference in the same
+    translation, crossing chapter boundaries when needed. Returns None if
+    there is no next verse (end of book, or reference/translation unknown).
+    """
+    return _navigate(reference, translation, direction=1)
+
+
+def get_prev_reference(reference: str, translation: str) -> str | None:
+    """Same as get_next_reference but moves backward."""
+    return _navigate(reference, translation, direction=-1)
+
+
+def _navigate(reference: str, translation: str, direction: int) -> str | None:
+    t = translation.lower().strip()
+    index = _verse_index.get(t)
+    if not index:
+        return None
+
+    key = _normalize_key(reference)
+    match = re.match(r'^(.*?)\s+(\d+):(\d+)$', key)
+    if not match:
+        return None
+
+    book, chapter_str, verse_str = match.groups()
+    chapter, verse = int(chapter_str), int(verse_str)
+
+    book_chapters = index.get(book)
+    if not book_chapters:
+        return None
+
+    verses_in_chapter = book_chapters.get(chapter, [])
+
+    if direction == 1:
+        # Try next verse in the same chapter
+        later = [v for v in verses_in_chapter if v > verse]
+        if later:
+            return f"{book} {chapter}:{min(later)}"
+        # Cross into the next chapter that exists for this book
+        later_chapters = sorted(c for c in book_chapters if c > chapter)
+        if later_chapters:
+            next_chapter = later_chapters[0]
+            first_verse = min(book_chapters[next_chapter])
+            return f"{book} {next_chapter}:{first_verse}"
+        return None  # end of book
+
+    else:
+        # Try previous verse in the same chapter
+        earlier = [v for v in verses_in_chapter if v < verse]
+        if earlier:
+            return f"{book} {chapter}:{max(earlier)}"
+        # Cross into the previous chapter that exists for this book
+        earlier_chapters = sorted((c for c in book_chapters if c < chapter), reverse=True)
+        if earlier_chapters:
+            prev_chapter = earlier_chapters[0]
+            last_verse = max(book_chapters[prev_chapter])
+            return f"{book} {prev_chapter}:{last_verse}"
+        return None  # start of book
 
 
 def get_all_verses(translation: str) -> dict:

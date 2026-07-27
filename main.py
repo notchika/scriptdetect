@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from groq import Groq
 from dotenv import load_dotenv
-from bible_loader import load_bibles, lookup, available_translations, get_all_verses
+from bible_loader import load_bibles, lookup, available_translations, get_all_verses, get_next_reference, get_prev_reference
 
 load_dotenv()
 
@@ -249,8 +249,9 @@ async def live_clear():
 @app.get("/search")
 async def manual_search(ref: str, translation: str = "kjv"):
     """
-    Direct manual lookup — operator types a reference, gets instant result
-    from local JSON, no Groq call needed.
+    Direct manual lookup — operator types OR speaks a reference (same natural
+    phrasing the live detector understands), gets instant result from local
+    JSON with ALL 5 translations included, no Groq call needed.
     """
     normalized_ref = ref.strip()
     direct_ref, _ = extract_direct_reference(normalized_ref)
@@ -260,6 +261,34 @@ async def manual_search(ref: str, translation: str = "kjv"):
         raise HTTPException(status_code=404, detail=f"Reference '{ref}' not found in any translation.")
     return {
         "reference": final_ref,
+        "translations": translations
+    }
+
+
+@app.get("/verse-nav")
+async def verse_nav(ref: str, direction: str = "next", translation: str = "kjv"):
+    """
+    Move to the next/previous verse from a given reference, within the same
+    translation. Powers the → / ← keyboard navigation on the live output.
+    """
+    if direction not in ("next", "prev"):
+        raise HTTPException(status_code=400, detail="direction must be 'next' or 'prev'")
+
+    nav_fn = get_next_reference if direction == "next" else get_prev_reference
+    new_ref = nav_fn(ref, translation)
+
+    if not new_ref:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {'next' if direction == 'next' else 'previous'} verse available."
+        )
+
+    translations = build_translation_lookup(new_ref)
+    text = translations.get(translation.upper(), next(iter(translations.values()), ""))
+
+    return {
+        "reference": new_ref,
+        "text": text,
         "translations": translations
     }
 

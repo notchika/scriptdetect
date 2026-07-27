@@ -17,6 +17,10 @@ let lastProcessedLen = 0;
 let cardCounter      = 0;
 const seenReferences = new Set(); // tracks references already shown this session
 
+// ── Live navigation state ─────────────────────────────────────────────────────
+let currentLiveRef = null;
+let currentLiveTranslation = 'KJV';
+
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 function getMinConfidence() {
@@ -366,10 +370,13 @@ async function sendToLive(reference, text, translation) {
     });
     if (!res.ok) throw new Error('Failed to send to live');
 
-    // Visual feedback — briefly flash a confirmation
+    // Track what's live now so arrow-key navigation knows where to move from
+    currentLiveRef = reference;
+    currentLiveTranslation = translation;
+
     const liveStatus = document.getElementById('liveStatus');
     if (liveStatus) {
-      liveStatus.textContent = `Live: ${reference} (${translation})`;
+      liveStatus.innerHTML = `Live: <strong>${reference}</strong> (${translation}) &nbsp;&mdash;&nbsp; use &larr; / &rarr; to navigate`;
       liveStatus.classList.add('active');
     }
   } catch (err) {
@@ -380,14 +387,97 @@ async function sendToLive(reference, text, translation) {
 async function clearLive() {
   try {
     await fetch('/live/clear', { method: 'POST' });
+    currentLiveRef = null;
     const liveStatus = document.getElementById('liveStatus');
     if (liveStatus) {
-      liveStatus.textContent = 'Live screen cleared';
+      liveStatus.textContent = 'No live slide active';
       liveStatus.classList.remove('active');
     }
   } catch (err) {
     console.error('clearLive error:', err);
   }
+}
+
+// ── Verse navigation (→ / ←) ───────────────────────────────────────────────────
+
+async function navigateVerse(direction) {
+  if (!currentLiveRef) {
+    const liveStatus = document.getElementById('liveStatus');
+    if (liveStatus) {
+      liveStatus.textContent = 'Send a verse live first, then use ← / → to navigate';
+      setTimeout(() => {
+        if (!currentLiveRef) liveStatus.textContent = 'No live slide active';
+      }, 2000);
+    }
+    return;
+  }
+
+  try {
+    const res = await fetch(
+      `/verse-nav?ref=${encodeURIComponent(currentLiveRef)}&direction=${direction}&translation=${currentLiveTranslation}`
+    );
+    if (!res.ok) {
+      const err = await res.json();
+      const liveStatus = document.getElementById('liveStatus');
+      if (liveStatus) liveStatus.innerHTML = `<span style="color:var(--rose)">${err.detail || 'No further verses'}</span>`;
+      return;
+    }
+
+    const data = await res.json();
+    await sendToLive(data.reference, data.text, currentLiveTranslation);
+  } catch (err) {
+    console.error('navigateVerse error:', err);
+  }
+}
+
+// Arrow keys navigate verses — but not while typing in an input/textarea
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement?.tagName;
+  const isTyping = tag === 'INPUT' || tag === 'TEXTAREA';
+  if (isTyping) return;
+
+  if (e.key === 'ArrowRight') { e.preventDefault(); navigateVerse('next'); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); navigateVerse('prev'); }
+});
+
+// ── Manual search — text or voice, all 5 translations shown ───────────────────
+
+let searchRecognition = null;
+
+function searchByVoice() {
+  if (!SR) {
+    const resultBox = document.getElementById('manualSearchResult');
+    resultBox.innerHTML = '<div class="search-error">Voice search not supported — use Chrome</div>';
+    resultBox.classList.add('visible');
+    return;
+  }
+
+  const micBtn = document.getElementById('searchMicBtn');
+  micBtn.classList.add('listening');
+  micBtn.disabled = true;
+
+  searchRecognition = new SR();
+  searchRecognition.continuous = false;
+  searchRecognition.interimResults = false;
+  searchRecognition.lang = 'en-US';
+
+  searchRecognition.onresult = e => {
+    const transcript = e.results[0][0].transcript.trim();
+    document.getElementById('manualSearchInput').value = transcript;
+    manualSearch();
+  };
+
+  searchRecognition.onerror = () => {
+    micBtn.classList.remove('listening');
+    micBtn.disabled = false;
+  };
+
+  searchRecognition.onend = () => {
+    micBtn.classList.remove('listening');
+    micBtn.disabled = false;
+  };
+
+  searchRecognition.start();
 }
 
 async function manualSearch() {
@@ -408,17 +498,25 @@ async function manualSearch() {
 
     const data = await res.json();
     const translations = data.translations || {};
-    const kjvText = translations.KJV || Object.values(translations)[0] || '';
+
+    const rows = ALL_TRANSLATIONS.map(t => {
+      const text = translations[t];
+      return `
+        <div class="translation-row search-translation-row">
+          <span class="trans-label">${t}</span>
+          ${text
+            ? `<span class="trans-text">${text}</span>
+               <button class="btn-send-live-sm" onclick='sendToLive(${JSON.stringify(data.reference)}, ${JSON.stringify(text)}, "${t}")'>
+                 Send Live
+               </button>`
+            : `<span class="trans-missing">Not loaded</span>`}
+        </div>`;
+    }).join('');
 
     resultBox.innerHTML = `
       <div class="search-result-card">
         <div class="search-result-ref">${data.reference}</div>
-        <div class="search-result-text">"${kjvText}"</div>
-        <div class="search-result-actions">
-          <button class="btn-sm btn-send-live" onclick='sendToLive(${JSON.stringify(data.reference)}, ${JSON.stringify(kjvText)}, "KJV")'>
-            Send to Live
-          </button>
-        </div>
+        <div class="search-translations">${rows}</div>
       </div>`;
   } catch (err) {
     resultBox.innerHTML = `<div class="search-error">${err.message}</div>`;
