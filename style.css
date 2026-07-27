@@ -583,3 +583,120 @@
     background: rgba(212,107,107,0.28);
     transform: scale(0.95);
   }
+
+  /* Live status indicator */
+  .live-status {
+    width: 100%;
+    text-align: center;
+    font-size: 12px;
+    color: var(--silver-dim);
+    padding: 0.4rem;
+    font-style: italic;
+  }
+  .live-status.active {
+    color: var(--green);
+    font-weight: 500;
+    font-style: normal;
+  }
+
+  /* Manual search area */
+  .manual-search-area {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .manual-search-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .manual-search-row input {
+    flex: 1;
+    background: var(--navy-card);
+    border: 1px solid var(--navy-border);
+    border-radius: var(--radius-sm);
+    padding: 0.6rem 0.9rem;
+    color: var(--white);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .manual-search-row input:focus { border-color: var(--gold); }
+  .manual-search-row input::placeholder { color: var(--silver-dim); }
+
+  .manual-search-result {
+    display: none;
+  }
+  .manual-search-result.visible {
+    display: block;
+  }
+
+  .search-loading {
+    font-size: 13px;
+    color: var(--silver-dim);
+    font-style: italic;
+    padding: 0.5rem;
+  }
+
+  .search-error {
+    font-size: 13px;
+    color: var(--rose);
+    background: var(--rose-bg);
+    border-radius: var(--radius-sm);
+    padding: 0.6rem 0.9rem;
+  }
+
+  .search-result-card {
+    background: var(--navy-card);
+    border: 1px solid var(--navy-border);
+    border-radius: var(--radius);
+    padding: 0.9rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .search-result-ref {
+    font-family: 'Lora', serif;
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--white);
+  }
+
+  .search-result-text {
+    font-family: 'Lora', serif;
+    font-style: italic;
+    font-size: 0.95rem;
+    color: var(--silver);
+    line-height: 1.6;
+    border-left: 2px solid var(--gold);
+    padding-left: 0.9rem;
+  }
+
+  /* Send to Live button */
+  .btn-send-live {
+    align-self: flex-start;
+    background: rgba(76,175,138,0.12);
+    border: 1px solid rgba(76,175,138,0.35);
+    color: var(--green);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 0.4rem 0.9rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .btn-send-live:hover {
+    background: rgba(76,175,138,0.22);
+  }
+
+  .search-result-actions {
+    display: flex;
+    justify-content: flex-end;
+  }

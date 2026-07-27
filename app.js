@@ -301,6 +301,9 @@ async function detectAndAppend(text) {
       lastDetections.push(d);
 
       const cardId = `card-${cardCounter}`;
+      const trans = d.translations || {};
+      const kjvText = trans.KJV || Object.values(trans)[0] || '';
+
       const card = document.createElement('div');
       card.className = 'detection-card';
       card.id = cardId;
@@ -314,6 +317,9 @@ async function detectAndAppend(text) {
         <div class="detection-body">
           <div class="phrase-block">"${d.detected_phrase || ''}"</div>
           ${d.explanation ? `<div class="expl">${d.explanation}</div>` : ''}
+          <button class="btn-send-live" onclick='sendToLive(${JSON.stringify(d.reference || "")}, ${JSON.stringify(kjvText)}, "KJV")'>
+            &#9658; Send to Live
+          </button>
           ${buildTranslationsBlock(d.translations, cardCounter)}
         </div>`;
       results.appendChild(card);
@@ -348,6 +354,76 @@ async function detect() {
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') detect();
 });
+
+// ── Send to Live / Manual Search ──────────────────────────────────────────────
+
+async function sendToLive(reference, text, translation) {
+  try {
+    const res = await fetch('/live/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reference, text, translation })
+    });
+    if (!res.ok) throw new Error('Failed to send to live');
+
+    // Visual feedback — briefly flash a confirmation
+    const liveStatus = document.getElementById('liveStatus');
+    if (liveStatus) {
+      liveStatus.textContent = `Live: ${reference} (${translation})`;
+      liveStatus.classList.add('active');
+    }
+  } catch (err) {
+    console.error('sendToLive error:', err);
+  }
+}
+
+async function clearLive() {
+  try {
+    await fetch('/live/clear', { method: 'POST' });
+    const liveStatus = document.getElementById('liveStatus');
+    if (liveStatus) {
+      liveStatus.textContent = 'Live screen cleared';
+      liveStatus.classList.remove('active');
+    }
+  } catch (err) {
+    console.error('clearLive error:', err);
+  }
+}
+
+async function manualSearch() {
+  const input = document.getElementById('manualSearchInput');
+  const ref = input.value.trim();
+  if (!ref) return;
+
+  const resultBox = document.getElementById('manualSearchResult');
+  resultBox.innerHTML = '<div class="search-loading">Searching&hellip;</div>';
+  resultBox.classList.add('visible');
+
+  try {
+    const res = await fetch(`/search?ref=${encodeURIComponent(ref)}`);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Not found');
+    }
+
+    const data = await res.json();
+    const translations = data.translations || {};
+    const kjvText = translations.KJV || Object.values(translations)[0] || '';
+
+    resultBox.innerHTML = `
+      <div class="search-result-card">
+        <div class="search-result-ref">${data.reference}</div>
+        <div class="search-result-text">"${kjvText}"</div>
+        <div class="search-result-actions">
+          <button class="btn-sm btn-send-live" onclick='sendToLive(${JSON.stringify(data.reference)}, ${JSON.stringify(kjvText)}, "KJV")'>
+            Send to Live
+          </button>
+        </div>
+      </div>`;
+  } catch (err) {
+    resultBox.innerHTML = `<div class="search-error">${err.message}</div>`;
+  }
+}
 
 // ── Delete single card ───────────────────────────────────────────────────────
 

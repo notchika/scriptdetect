@@ -14,6 +14,7 @@ from bible_loader import load_bibles, lookup, available_translations, get_all_ve
 load_dotenv()
 
 latest_detection: dict = {}
+live_slide: dict = {}  # what's currently shown on the full-screen /live output
 
 # ── Reference call pattern ────────────────────────────────────────────────────
 # Matches phrases like:
@@ -209,6 +210,60 @@ async def overlay():
         return f.read()
 
 
+@app.get("/live", response_class=HTMLResponse)
+async def live_page():
+    with open(os.path.join(os.path.dirname(__file__), "live.html")) as f:
+        return f.read()
+
+
+@app.get("/live/current")
+async def live_current():
+    return live_slide
+
+
+class SendLiveRequest(BaseModel):
+    reference: str
+    text: str
+    translation: str = "KJV"
+
+
+@app.post("/live/send")
+async def live_send(req: SendLiveRequest):
+    global live_slide
+    live_slide = {
+        "reference": req.reference,
+        "text": req.text,
+        "translation": req.translation,
+        "visible": True,
+    }
+    return {"status": "sent", "slide": live_slide}
+
+
+@app.post("/live/clear")
+async def live_clear():
+    global live_slide
+    live_slide = {}
+    return {"status": "cleared"}
+
+
+@app.get("/search")
+async def manual_search(ref: str, translation: str = "kjv"):
+    """
+    Direct manual lookup — operator types a reference, gets instant result
+    from local JSON, no Groq call needed.
+    """
+    normalized_ref = ref.strip()
+    direct_ref, _ = extract_direct_reference(normalized_ref)
+    final_ref = direct_ref if direct_ref else normalized_ref
+    translations = build_translation_lookup(final_ref)
+    if not translations:
+        raise HTTPException(status_code=404, detail=f"Reference '{ref}' not found in any translation.")
+    return {
+        "reference": final_ref,
+        "translations": translations
+    }
+
+
 @app.get("/overlay/latest")
 async def overlay_latest():
     return latest_detection
@@ -224,6 +279,28 @@ async def overlay_clear():
 @app.get("/translations")
 async def get_translations():
     return {"translations": available_translations()}
+
+
+@app.get("/debug/files")
+async def debug_files():
+    """
+    Shows exactly what files Render sees in the bibles/ folder at runtime.
+    Use this to diagnose missing-translation issues on deployment.
+    """
+    bible_dir = os.path.join(BASE_DIR, "bibles")
+    if not os.path.isdir(bible_dir):
+        return {"error": f"bibles/ directory not found at {bible_dir}"}
+
+    all_files = os.listdir(bible_dir)
+    json_files = [f for f in all_files if f.lower().endswith(".json")]
+
+    return {
+        "bibles_directory": bible_dir,
+        "all_files_found": all_files,
+        "json_files_found": json_files,
+        "translations_currently_loaded": available_translations(),
+        "expected_translations": ["kjv", "niv", "nkjv", "nlt", "amp"],
+    }
 
 
 @app.get("/debug/lookup")

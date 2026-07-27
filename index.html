@@ -33,7 +33,26 @@
         <option value="low">All results</option>
       </select>
     </div>
+    <a class="toolbar-btn" href="/live" target="_blank">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      Live Output
+    </a>
+    <button class="toolbar-btn" onclick="clearLive()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg>
+      Clear Live Screen
+    </button>
     <div class="toolbar-hint" id="overlayHint">OBS: add Browser Source → <span id="overlayUrl"></span></div>
+  </div>
+
+  <div class="live-status" id="liveStatus">No live slide active</div>
+
+  <div class="manual-search-area">
+    <div class="transcript-label">Manual Scripture Search</div>
+    <div class="manual-search-row">
+      <input type="text" id="manualSearchInput" placeholder="e.g. John 3:16" onkeydown="if(event.key==='Enter') manualSearch()">
+      <button class="btn-sm btn-detect-sm" onclick="manualSearch()">Search</button>
+    </div>
+    <div class="manual-search-result" id="manualSearchResult"></div>
   </div>
 
   <div class="controls">
