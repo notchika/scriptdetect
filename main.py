@@ -20,10 +20,11 @@ live_slide: dict = {}  # what's currently shown on the full-screen /live output
 # Matches phrases like:
 #   "let's have John 3:16"
 #   "turn to Romans 8:28"
-#   "open to Psalm 23:1"
-#   "read Genesis 1:1"
-#   "let's go to 1 Corinthians 13:4"
-#   "John 3:16" (bare reference anywhere in text)
+#   "John 3 verse 16"        <- spoken, no colon
+#   "John 3, verse 16"       <- spoken with comma
+#   "John chapter 3 verse 16"<- fully spoken
+#   "1 Cor 13:4"             <- abbreviation
+#   "let's go to 1 Corinthians 13:4-6"  <- verse range
 
 CALL_TRIGGERS = r"""
     (?:
@@ -38,35 +39,112 @@ CALL_TRIGGERS = r"""
     )\s+
 """
 
-# Bible book names (full + common abbreviations)
-BOOK_PATTERN = r"""
-    (?:
-        # Numbered books
-        (?:[123]\s*(?:
-            Kings?|Chronicles?|Samuel|Corinthians?|Thessalonians?|Timothy|Peter|John|
-            Maccabees?|Esdras?
-        ))|
-        # Song of Solomon / Song of Songs
-        (?:Song\s+of\s+(?:Solomon|Songs?))|
-        # Regular books
-        (?:
-            Genesis|Exodus|Leviticus|Numbers|Deuteronomy|Joshua|Judges|Ruth|
-            Nehemiah|Esther|Job|Psalms?|Proverbs?|Ecclesiastes|Isaiah|Jeremiah|
-            Lamentations|Ezekiel|Daniel|Hosea|Joel|Amos|Obadiah|Jonah|Micah|
-            Nahum|Habakkuk|Zephaniah|Haggai|Zechariah|Malachi|
-            Matthew|Mark|Luke|John|Acts|Romans|Galatians|Ephesians|Philippians|
-            Colossians|Philemon|Hebrews|James|Jude|Revelation|Revelations|
-            # Common abbreviations
-            Gen|Ex|Lev|Num|Deut|Josh|Judg|Ps|Prov|Eccl|Isa|Jer|Lam|Ezek|Dan|
-            Hos|Zech|Mal|Matt|Mk|Lk|Jn|Rom|Gal|Eph|Phil|Col|Thess|Tim|Heb|Jas|Rev
-        )
-    )
-"""
+# ── Book name canonicalization ────────────────────────────────────────────────
+# Maps every recognized abbreviation (and the full name itself) to the exact
+# canonical title used as the book name in the Bible JSON files.
+BOOK_ABBREVIATIONS = {
+    "Genesis":          ["Gen", "Ge", "Gn"],
+    "Exodus":           ["Exod", "Exo", "Ex"],
+    "Leviticus":        ["Lev", "Le", "Lv"],
+    "Numbers":          ["Num", "Nu", "Nm", "Nb"],
+    "Deuteronomy":      ["Deut", "De", "Dt"],
+    "Joshua":           ["Josh", "Jos", "Jsh"],
+    "Judges":           ["Judg", "Jdg", "Jg", "Jdgs"],
+    "Ruth":             ["Rth", "Ru"],
+    "1 Samuel":         ["1 Sam", "1Sa", "1S", "I Sam", "1st Samuel", "1Samuel"],
+    "2 Samuel":         ["2 Sam", "2Sa", "2S", "II Sam", "2nd Samuel", "2Samuel"],
+    "1 Kings":          ["1 Kgs", "1K", "I Kgs", "1st Kings", "1Kings"],
+    "2 Kings":          ["2 Kgs", "2K", "II Kgs", "2nd Kings", "2Kings"],
+    "1 Chronicles":     ["1 Chron", "1 Chr", "1Ch", "I Chron", "1st Chronicles", "1Chronicles"],
+    "2 Chronicles":     ["2 Chron", "2 Chr", "2Ch", "II Chron", "2nd Chronicles", "2Chronicles"],
+    "Ezra":             ["Ezr"],
+    "Nehemiah":         ["Neh", "Ne"],
+    "Esther":           ["Esth", "Est"],
+    "Job":              ["Jb"],
+    "Psalms":           ["Ps", "Psalm", "Pslm", "Psa", "Psm", "Pss"],
+    "Proverbs":         ["Prov", "Pro", "Prv", "Pr"],
+    "Ecclesiastes":     ["Eccles", "Eccle", "Ecc", "Ec", "Qoh"],
+    "Song Of Solomon":  ["Song", "SOS", "Canticles", "Song Of Songs"],
+    "Isaiah":           ["Isa", "Is"],
+    "Jeremiah":         ["Jer", "Je", "Jr"],
+    "Lamentations":     ["Lam", "La"],
+    "Ezekiel":          ["Ezek", "Eze", "Ezk"],
+    "Daniel":           ["Dan", "Da", "Dn"],
+    "Hosea":            ["Hos", "Ho"],
+    "Joel":             ["Jl"],
+    "Amos":             ["Am"],
+    "Obadiah":          ["Obad", "Ob"],
+    "Jonah":            ["Jnh", "Jon"],
+    "Micah":            ["Mic", "Mc"],
+    "Nahum":            ["Nah", "Na"],
+    "Habakkuk":         ["Hab", "Hb"],
+    "Zephaniah":        ["Zeph", "Zep", "Zp"],
+    "Haggai":           ["Hag", "Hg"],
+    "Zechariah":        ["Zech", "Zec", "Zc"],
+    "Malachi":          ["Mal", "Ml"],
+    "Matthew":          ["Matt", "Mt"],
+    "Mark":             ["Mrk", "Mk", "Mr"],
+    "Luke":             ["Luk", "Lk"],
+    "John":             ["Jn", "Jhn"],
+    "Acts":             ["Act"],
+    "Romans":           ["Rom", "Ro", "Rm"],
+    "1 Corinthians":    ["1 Cor", "1Co", "I Cor", "1st Corinthians", "1Corinthians"],
+    "2 Corinthians":    ["2 Cor", "2Co", "II Cor", "2nd Corinthians", "2Corinthians"],
+    "Galatians":        ["Gal", "Ga"],
+    "Ephesians":        ["Eph", "Ephes"],
+    "Philippians":      ["Phil", "Php", "Pp"],
+    "Colossians":       ["Col", "Co"],
+    "1 Thessalonians":  ["1 Thess", "1 Thes", "1Th", "I Thess", "1st Thessalonians", "1Thessalonians"],
+    "2 Thessalonians":  ["2 Thess", "2 Thes", "2Th", "II Thess", "2nd Thessalonians", "2Thessalonians"],
+    "1 Timothy":        ["1 Tim", "1Ti", "I Tim", "1st Timothy", "1Timothy"],
+    "2 Timothy":        ["2 Tim", "2Ti", "II Tim", "2nd Timothy", "2Timothy"],
+    "Titus":            ["Tit", "Ti"],
+    "Philemon":         ["Philem", "Phm", "Pm"],
+    "Hebrews":          ["Heb"],
+    "James":            ["Jas", "Jm"],
+    "1 Peter":          ["1 Pet", "1Pe", "I Pet", "1st Peter", "1Peter"],
+    "2 Peter":          ["2 Pet", "2Pe", "II Pet", "2nd Peter", "2Peter"],
+    "1 John":           ["1 Jn", "1Jo", "I John", "1st John", "1John"],
+    "2 John":           ["2 Jn", "2Jo", "II John", "2nd John", "2John"],
+    "3 John":           ["3 Jn", "3Jo", "III John", "3rd John", "3John"],
+    "Jude":             ["Jud", "Jd"],
+    "Revelation":       ["Rev", "Re", "Revelations"],
+}
 
+# Build reverse lookup: any recognized spelling (lowercased) -> canonical name.
+# Includes the canonical full names themselves so "Genesis" maps to itself.
+_BOOK_LOOKUP = {}
+for _canonical, _abbrevs in BOOK_ABBREVIATIONS.items():
+    _BOOK_LOOKUP[_canonical.lower()] = _canonical
+    for _a in _abbrevs:
+        _BOOK_LOOKUP[_a.lower()] = _canonical
+
+# Regex alternation of every recognized book term, longest first so e.g.
+# "Corinthians" isn't cut short by a shorter overlapping alternative.
+_ALL_BOOK_TERMS = sorted(_BOOK_LOOKUP.keys(), key=len, reverse=True)
+BOOK_PATTERN = "(?:" + "|".join(re.escape(t) for t in _ALL_BOOK_TERMS) + r")\.?"
+
+
+def canonicalize_book(raw: str) -> str:
+    """Map any typed/spoken book spelling to its canonical JSON key name."""
+    key = re.sub(r"\s+", " ", raw.strip().rstrip(".")).lower()
+    return _BOOK_LOOKUP.get(key, raw.strip().title())
+
+
+# Matches: Book [chapter] N [,:]? [verse(s)] N [- N]
+# Handles both typed ("John 3:16") and spoken ("John 3, verse 16",
+# "John chapter 3 verse 16-18") formats in one pattern.
 REFERENCE_PATTERN = re.compile(
     rf"""
-    (?:{CALL_TRIGGERS})?          # optional trigger phrase
-    ({BOOK_PATTERN}\s+\d+:\d+(?:-\d+)?)  # Book Chapter:Verse or range
+    (?:{CALL_TRIGGERS})?              # optional trigger phrase
+    ({BOOK_PATTERN})                  # book name / abbreviation
+    \s+
+    (?:chapter\s+)?                   # optional "chapter"
+    (\d+)                             # chapter number
+    \s*[,:]?\s*                       # optional comma or colon separator
+    (?:verses?\s+)?                   # optional "verse"/"verses"
+    (\d+)                             # verse number
+    (?:\s*-\s*(\d+))?                 # optional range end
     """,
     re.IGNORECASE | re.VERBOSE
 )
@@ -74,19 +152,23 @@ REFERENCE_PATTERN = re.compile(
 
 def extract_direct_reference(text: str):
     """
-    Check if the text contains an explicit scripture reference call.
+    Check if the text contains an explicit scripture reference call —
+    whether typed ("John 3:16") or spoken ("John 3, verse 16").
     Returns (reference_string, detected_phrase) or (None, None).
     """
     match = REFERENCE_PATTERN.search(text)
-    if match:
-        raw_ref = match.group(1).strip()
-        # Normalize: title-case book, keep chapter:verse
-        ref_match = re.match(r'^(.*?)\s+(\d+:\d+(?:-\d+)?)$', raw_ref.strip())
-        if ref_match:
-            book = ref_match.group(1).strip().title()
-            cv = ref_match.group(2)
-            return f"{book} {cv}", match.group(0).strip()
-    return None, None
+    if not match:
+        return None, None
+
+    book_raw, chapter, verse_start, verse_end = match.groups()
+    book = canonicalize_book(book_raw)
+
+    if verse_end:
+        ref = f"{book} {chapter}:{verse_start}-{verse_end}"
+    else:
+        ref = f"{book} {chapter}:{verse_start}"
+
+    return ref, match.group(0).strip()
 
 
 @asynccontextmanager
