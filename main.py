@@ -148,20 +148,80 @@ def _normalize_ordinal_words(text: str) -> str:
     return text
 
 
+# Speech-to-text renders chapter/verse numbers as words ("verse one",
+# "chapter thirteen") rather than digits. Convert spelled-out cardinal
+# numbers (covering the full realistic range of chapters/verses, up to
+# Psalm 119's 176 verses) into digits before matching.
+_NUM_UNITS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19,
+}
+_NUM_TENS = {
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+
+_NUMBER_WORD_RUN = re.compile(
+    r"\b(?:(?:" + "|".join(
+        list(_NUM_UNITS.keys()) + list(_NUM_TENS.keys()) + ["hundred", "and"]
+    ) + r")\s*)+\b",
+    re.IGNORECASE
+)
+
+
+def _words_to_int(words: list) -> int:
+    """Parse a run of number words (e.g. ['one','hundred','seventy','six']) into an int."""
+    total, current, matched_any = 0, 0, False
+    for w in words:
+        w = w.lower()
+        if w == "and":
+            continue
+        if w in _NUM_UNITS:
+            current += _NUM_UNITS[w]
+            matched_any = True
+        elif w in _NUM_TENS:
+            current += _NUM_TENS[w]
+            matched_any = True
+        elif w == "hundred":
+            current = (current or 1) * 100
+            matched_any = True
+    return current if matched_any else None
+
+
+def _normalize_spelled_numbers(text: str) -> str:
+    def repl(m):
+        words = m.group(0).split()
+        value = _words_to_int(words)
+        return str(value) if value is not None else m.group(0)
+    return _NUMBER_WORD_RUN.sub(repl, text)
+
+
 # Matches: Book [chapter] N [,:]? [verse(s)] N [- N]
 # Handles both typed ("John 3:16") and spoken ("John 3, verse 16",
 # "John chapter 3 verse 16-18") formats in one pattern.
+#
+# Chapter/verse digits use an atomic lookahead+backreference pattern
+# (?=(\d+))\1 instead of a plain (\d+). A plain \d+ can backtrack into
+# consuming FEWER digits if the rest of the pattern fails to match later
+# (e.g. "13 verse one" — since "one" isn't a digit, a plain \d+ would
+# backtrack "13" down to "1", then wrongly treat the leftover "3" as the
+# verse number, silently producing "Chapter 1:3" instead of failing).
+# The atomic form locks in the full digit run so that kind of wrong,
+# confidently-incorrect split can never happen — the match just fails
+# cleanly instead, which is what we want when the input isn't understood.
 REFERENCE_PATTERN = re.compile(
     rf"""
     (?:{CALL_TRIGGERS})?              # optional trigger phrase
-    ({BOOK_PATTERN})                  # book name / abbreviation
+    ({BOOK_PATTERN})                  # group 1: book name / abbreviation
     \s+
     (?:chapter\s+)?                   # optional "chapter"
-    (\d+)                             # chapter number
+    (?=(\d+))\2                       # group 2: chapter number (atomic — no backtracking)
     \s*[,:]?\s*                       # optional comma or colon separator
     (?:verses?\s+)?                   # optional "verse"/"verses"
-    (\d+)                             # verse number
-    (?:\s*-\s*(\d+))?                 # optional range end
+    (?=(\d+))\3                       # group 3: verse number (atomic — no backtracking)
+    (?:\s*-\s*(?=(\d+))\4)?           # group 4: optional range end (atomic)
     """,
     re.IGNORECASE | re.VERBOSE
 )
@@ -170,16 +230,23 @@ REFERENCE_PATTERN = re.compile(
 def extract_direct_reference(text: str):
     """
     Check if the text contains an explicit scripture reference call —
-    whether typed ("John 3:16"), spoken ("John 3, verse 16"), or spoken
-    with ordinal book prefixes ("First Corinthians 13:4").
+    typed ("John 3:16"), spoken ("John 3, verse 16"), spoken with ordinal
+    book prefixes ("First Corinthians 13:4"), or spoken with spelled-out
+    numbers ("First Corinthians thirteen, verse one").
     Returns (reference_string, detected_phrase) or (None, None).
     """
     normalized_text = _normalize_ordinal_words(text)
+    normalized_text = _normalize_spelled_numbers(normalized_text)
+
     match = REFERENCE_PATTERN.search(normalized_text)
     if not match:
         return None, None
 
-    book_raw, chapter, verse_start, verse_end = match.groups()
+    book_raw = match.group(1)
+    chapter = match.group(2)
+    verse_start = match.group(3)
+    verse_end = match.group(4)
+
     book = canonicalize_book(book_raw)
 
     if verse_end:
