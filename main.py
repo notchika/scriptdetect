@@ -131,6 +131,23 @@ def canonicalize_book(raw: str) -> str:
     return _BOOK_LOOKUP.get(key, raw.strip().title())
 
 
+# Speech-to-text renders "First Corinthians" as the literal word "First",
+# not the numeral "1" — but our abbreviation map only recognizes numeral
+# forms (1/1st/I Corinthians). Convert spoken ordinals to numerals first
+# so "First", "Second", "Third" resolve correctly before book matching.
+_ORDINAL_WORDS = {
+    r"\bfirst\b":  "1",
+    r"\bsecond\b": "2",
+    r"\bthird\b":  "3",
+}
+
+
+def _normalize_ordinal_words(text: str) -> str:
+    for pattern, replacement in _ORDINAL_WORDS.items():
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
+
+
 # Matches: Book [chapter] N [,:]? [verse(s)] N [- N]
 # Handles both typed ("John 3:16") and spoken ("John 3, verse 16",
 # "John chapter 3 verse 16-18") formats in one pattern.
@@ -153,10 +170,12 @@ REFERENCE_PATTERN = re.compile(
 def extract_direct_reference(text: str):
     """
     Check if the text contains an explicit scripture reference call —
-    whether typed ("John 3:16") or spoken ("John 3, verse 16").
+    whether typed ("John 3:16"), spoken ("John 3, verse 16"), or spoken
+    with ordinal book prefixes ("First Corinthians 13:4").
     Returns (reference_string, detected_phrase) or (None, None).
     """
-    match = REFERENCE_PATTERN.search(text)
+    normalized_text = _normalize_ordinal_words(text)
+    match = REFERENCE_PATTERN.search(normalized_text)
     if not match:
         return None, None
 
@@ -169,6 +188,7 @@ def extract_direct_reference(text: str):
         ref = f"{book} {chapter}:{verse_start}"
 
     return ref, match.group(0).strip()
+
 
 
 @asynccontextmanager
