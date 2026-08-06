@@ -63,6 +63,37 @@
     <div class="manual-search-result" id="manualSearchResult"></div>
   </div>
 
+  <div class="divider"></div>
+
+  <div class="song-library-area">
+    <div class="transcript-label">Song Library</div>
+    <div class="manual-search-row">
+      <input type="text" id="songSearchInput" placeholder="Search songs by title or author&hellip;" oninput="songSearchDebounced()">
+      <button class="btn-sm btn-detect-sm" onclick="openSongEditor()">+ Add Song</button>
+    </div>
+    <div class="song-list" id="songList"></div>
+  </div>
+
+  <!-- Song editor modal -->
+  <div class="song-editor-overlay" id="songEditorOverlay">
+    <div class="song-editor-modal">
+      <div class="song-editor-header">
+        <span id="songEditorTitle">Add Song</span>
+        <button class="card-delete-btn" onclick="closeSongEditor()">&#x2715;</button>
+      </div>
+      <div class="song-editor-body">
+        <input type="text" id="songTitleInput" placeholder="Song title" class="song-editor-input">
+        <input type="text" id="songAuthorInput" placeholder="Author / CCLI info (optional)" class="song-editor-input">
+        <div id="songSectionsList"></div>
+        <button class="btn-sm" onclick="addSongSection()">+ Add Section (verse/chorus/bridge)</button>
+      </div>
+      <div class="song-editor-footer">
+        <button class="btn-sm" id="songDeleteBtn" onclick="deleteSongFromEditor()" style="display:none;color:var(--rose);">Delete Song</button>
+        <button class="btn-sm btn-detect-sm" onclick="saveSong()">Save Song</button>
+      </div>
+    </div>
+  </div>
+
   <div class="controls">
     <button class="mic-btn" id="micBtn" onclick="toggleMic()">
       <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

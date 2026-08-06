@@ -574,3 +574,216 @@ function copyLastToClipboard() {
     setTimeout(() => { btn.classList.remove('copied'); lbl.textContent = 'Copy Last Detection'; }, 2000);
   });
 }
+
+// ── Song Library ────────────────────────────────────────────────────────────
+
+let allSongsCache = [];
+let editingSongId = null;         // null = creating new song
+let currentLiveSong = null;       // { song data, sectionIndex } when a song is live
+
+async function loadSongList(query = '') {
+  const listEl = document.getElementById('songList');
+  listEl.innerHTML = '<div class="search-loading">Loading&hellip;</div>';
+
+  try {
+    const res = await fetch(`/songs?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    allSongsCache = data.songs || [];
+
+    if (!allSongsCache.length) {
+      listEl.innerHTML = '<div class="empty">No songs yet — click "+ Add Song" to create one.</div>';
+      return;
+    }
+
+    listEl.innerHTML = allSongsCache.map(s => `
+      <div class="song-list-item" onclick="openSong('${s.id}')">
+        <div>
+          <div class="song-list-title">${s.title}</div>
+          ${s.author ? `<div class="song-list-author">${s.author}</div>` : ''}
+        </div>
+        <span class="song-list-arrow">&#8250;</span>
+      </div>
+    `).join('');
+  } catch (err) {
+    listEl.innerHTML = `<div class="search-error">${err.message}</div>`;
+  }
+}
+
+let songSearchTimer = null;
+function songSearchDebounced() {
+  clearTimeout(songSearchTimer);
+  songSearchTimer = setTimeout(() => {
+    loadSongList(document.getElementById('songSearchInput').value.trim());
+  }, 300);
+}
+
+// Open a song — show its sections as sendable slide cards
+async function openSong(songId) {
+  try {
+    const res = await fetch(`/songs/${songId}`);
+    if (!res.ok) throw new Error('Song not found');
+    const song = await res.json();
+
+    currentLiveSong = { song, sectionIndex: 0 };
+
+    const listEl = document.getElementById('songList');
+    listEl.innerHTML = `
+      <div class="song-detail-header">
+        <button class="btn-sm" onclick="loadSongList()">&larr; Back to list</button>
+        <button class="btn-sm" onclick="openSongEditor('${songId}')">Edit</button>
+      </div>
+      <div class="song-detail-title">${song.title}</div>
+      ${song.author ? `<div class="song-list-author">${song.author}</div>` : ''}
+      <div class="song-sections-list">
+        ${song.sections.map((sec, i) => `
+          <div class="song-section-card">
+            <div class="song-section-label">${sec.label}</div>
+            <div class="song-section-lines">${sec.lines.join('<br>')}</div>
+            <button class="btn-send-live" onclick='sendSongSectionLive(${JSON.stringify(song)}, ${i})'>
+              &#9658; Send to Live
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  } catch (err) {
+    console.error('openSong error:', err);
+  }
+}
+
+// Send a specific song section live — reuses the same /live/send endpoint as scripture
+async function sendSongSectionLive(song, sectionIndex) {
+  const section = song.sections[sectionIndex];
+  if (!section) return;
+
+  const text = section.lines.join('\n');
+  const reference = `${song.title} — ${section.label}`;
+
+  await sendToLive(reference, text, 'LYRICS');
+
+  // Track song-specific nav state so arrow keys move between sections
+  currentLiveSong = { song, sectionIndex };
+  currentLiveRef = null; // not a scripture reference — disables verse-nav path
+}
+
+// Arrow-key navigation extended: if a song is live, move between its sections
+const _originalNavigateVerse = navigateVerse;
+navigateVerse = async function(direction) {
+  if (currentLiveSong && !currentLiveRef) {
+    const { song, sectionIndex } = currentLiveSong;
+    const nextIndex = direction === 'next' ? sectionIndex + 1 : sectionIndex - 1;
+
+    if (nextIndex < 0 || nextIndex >= song.sections.length) {
+      const liveStatus = document.getElementById('liveStatus');
+      if (liveStatus) liveStatus.innerHTML = `<span style="color:var(--rose)">No ${direction === 'next' ? 'next' : 'previous'} section in this song</span>`;
+      return;
+    }
+
+    await sendSongSectionLive(song, nextIndex);
+    return;
+  }
+  // Fall back to scripture verse navigation
+  await _originalNavigateVerse(direction);
+};
+
+// ── Song editor (add/edit) ────────────────────────────────────────────────────
+
+function openSongEditor(songId = null) {
+  editingSongId = songId;
+  document.getElementById('songEditorOverlay').classList.add('visible');
+  document.getElementById('songSectionsList').innerHTML = '';
+
+  const deleteBtn = document.getElementById('songDeleteBtn');
+
+  if (songId) {
+    document.getElementById('songEditorTitle').textContent = 'Edit Song';
+    deleteBtn.style.display = 'inline-block';
+    fetch(`/songs/${songId}`).then(r => r.json()).then(song => {
+      document.getElementById('songTitleInput').value = song.title;
+      document.getElementById('songAuthorInput').value = song.author || '';
+      song.sections.forEach(sec => addSongSection(sec.label, sec.lines.join('\n')));
+    });
+  } else {
+    document.getElementById('songEditorTitle').textContent = 'Add Song';
+    deleteBtn.style.display = 'none';
+    document.getElementById('songTitleInput').value = '';
+    document.getElementById('songAuthorInput').value = '';
+    addSongSection('Verse 1', '');
+  }
+}
+
+function closeSongEditor() {
+  document.getElementById('songEditorOverlay').classList.remove('visible');
+  editingSongId = null;
+}
+
+function addSongSection(label = '', lines = '') {
+  const container = document.getElementById('songSectionsList');
+  const div = document.createElement('div');
+  div.className = 'song-section-editor';
+  div.innerHTML = `
+    <div class="song-section-editor-row">
+      <input type="text" class="song-section-label-input" placeholder="Verse 1 / Chorus / Bridge" value="${label}">
+      <button class="card-delete-btn" onclick="this.closest('.song-section-editor').remove()">&#x2715;</button>
+    </div>
+    <textarea class="song-section-lines-input" placeholder="Lyric lines, one per line&hellip;">${lines}</textarea>
+  `;
+  container.appendChild(div);
+}
+
+async function saveSong() {
+  const title = document.getElementById('songTitleInput').value.trim();
+  const author = document.getElementById('songAuthorInput').value.trim();
+
+  if (!title) {
+    alert('Song title is required');
+    return;
+  }
+
+  const sectionEls = document.querySelectorAll('#songSectionsList .song-section-editor');
+  const sections = Array.from(sectionEls).map(el => ({
+    label: el.querySelector('.song-section-label-input').value.trim() || 'Section',
+    lines: el.querySelector('.song-section-lines-input').value.split('\n').filter(l => l.trim())
+  })).filter(s => s.lines.length > 0);
+
+  if (!sections.length) {
+    alert('Add at least one section with lyrics');
+    return;
+  }
+
+  const payload = { title, author, sections };
+
+  try {
+    const url = editingSongId ? `/songs/${editingSongId}` : '/songs';
+    const method = editingSongId ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Failed to save song');
+
+    closeSongEditor();
+    loadSongList();
+  } catch (err) {
+    alert('Error saving song: ' + err.message);
+  }
+}
+
+async function deleteSongFromEditor() {
+  if (!editingSongId) return;
+  if (!confirm('Delete this song permanently?')) return;
+
+  try {
+    await fetch(`/songs/${editingSongId}`, { method: 'DELETE' });
+    closeSongEditor();
+    loadSongList();
+  } catch (err) {
+    alert('Error deleting song: ' + err.message);
+  }
+}
+
+// Load song list on page load
+document.addEventListener('DOMContentLoaded', () => {
+  loadSongList();
+});

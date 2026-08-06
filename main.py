@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from groq import Groq
 from dotenv import load_dotenv
 from bible_loader import load_bibles, lookup, available_translations, get_all_verses, get_next_reference, get_prev_reference
+from song_loader import load_songs, list_songs, search_songs, get_song, create_song, update_song, delete_song
 
 load_dotenv()
 
@@ -261,6 +262,7 @@ def extract_direct_reference(text: str):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_bibles()
+    load_songs()
     for t in available_translations():
         verses = get_all_verses(t)
         if verses:
@@ -460,6 +462,58 @@ async def verse_nav(ref: str, direction: str = "next", translation: str = "kjv")
         "text": text,
         "translations": translations
     }
+
+
+# ── Song Library ───────────────────────────────────────────────────────────────
+
+class SongSection(BaseModel):
+    label: str          # e.g. "Verse 1", "Chorus", "Bridge"
+    lines: list[str]     # lyric lines shown together as one live slide
+
+
+class SongRequest(BaseModel):
+    title: str
+    author: str = ""
+    sections: list[SongSection]
+
+
+@app.get("/songs")
+async def songs_list(q: str = ""):
+    """List songs, optionally filtered by search query (title/author)."""
+    if q:
+        return {"songs": search_songs(q)}
+    return {"songs": list_songs()}
+
+
+@app.get("/songs/{song_id}")
+async def songs_get(song_id: str):
+    song = get_song(song_id)
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    return song
+
+
+@app.post("/songs")
+async def songs_create(req: SongRequest):
+    sections = [s.dict() for s in req.sections]
+    song = create_song(req.title, req.author, sections)
+    return song
+
+
+@app.put("/songs/{song_id}")
+async def songs_update(song_id: str, req: SongRequest):
+    sections = [s.dict() for s in req.sections]
+    song = update_song(song_id, req.title, req.author, sections)
+    if not song:
+        raise HTTPException(status_code=404, detail="Song not found")
+    return song
+
+
+@app.delete("/songs/{song_id}")
+async def songs_delete(song_id: str):
+    if not delete_song(song_id):
+        raise HTTPException(status_code=404, detail="Song not found")
+    return {"status": "deleted"}
 
 
 @app.get("/overlay/latest")

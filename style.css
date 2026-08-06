@@ -760,3 +760,205 @@
 
   /* Nav hint styling in live status */
   .live-status strong { color: var(--gold); }
+
+/* ── Song Library ─────────────────────────────────────────────────────────── */
+
+.song-library-area {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.song-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.song-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--navy-card);
+  border: 1px solid var(--navy-border);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.song-list-item:hover { border-color: var(--gold); }
+
+.song-list-title {
+  font-family: 'Lora', serif;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--white);
+}
+
+.song-list-author {
+  font-size: 11px;
+  color: var(--silver-dim);
+  margin-top: 2px;
+}
+
+.song-list-arrow {
+  color: var(--silver-dim);
+  font-size: 18px;
+}
+
+.song-detail-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.song-detail-title {
+  font-family: 'Lora', serif;
+  font-weight: 600;
+  font-size: 1.3rem;
+  color: var(--white);
+  margin-top: 0.5rem;
+}
+
+.song-sections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.song-section-card {
+  background: var(--navy-card);
+  border: 1px solid var(--navy-border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.song-section-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.song-section-lines {
+  font-family: 'Lora', serif;
+  font-size: 0.95rem;
+  color: var(--silver);
+  line-height: 1.6;
+}
+
+/* Song editor modal */
+.song-editor-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.song-editor-overlay.visible { display: flex; }
+
+.song-editor-modal {
+  background: var(--navy-mid);
+  border: 1px solid var(--navy-border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 560px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.song-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--navy-border);
+  font-family: 'Lora', serif;
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--white);
+}
+
+.song-editor-body {
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.song-editor-input {
+  width: 100%;
+  background: var(--navy-card);
+  border: 1px solid var(--navy-border);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.9rem;
+  color: var(--white);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  outline: none;
+}
+.song-editor-input:focus { border-color: var(--gold); }
+
+.song-section-editor {
+  background: var(--navy-card-inner);
+  border: 1px solid var(--navy-border);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.song-section-editor-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.song-section-label-input {
+  flex: 1;
+  background: var(--navy-card);
+  border: 1px solid var(--navy-border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.7rem;
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+}
+
+.song-section-lines-input {
+  width: 100%;
+  min-height: 80px;
+  background: var(--navy-card);
+  border: 1px solid var(--navy-border);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.8rem;
+  color: var(--silver);
+  font-family: 'Lora', serif;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+
+.song-editor-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--navy-border);
+}
