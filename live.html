@@ -13,6 +13,23 @@
     height: 100%;
     background: #000;
     overflow: hidden;
+    transition: background 0.4s ease;
+  }
+
+  #bgLayer {
+    position: fixed;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    z-index: 0;
+  }
+
+  #overlayLayer {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 1;
+    transition: background 0.4s ease;
   }
 
   body {
@@ -29,6 +46,8 @@
     opacity: 0;
     transform: scale(0.97);
     transition: opacity 0.5s ease, transform 0.5s ease;
+    position: relative;
+    z-index: 2;
   }
 
   .slide.visible {
@@ -76,6 +95,9 @@
 </head>
 <body>
 
+<div id="bgLayer"></div>
+<div id="overlayLayer"></div>
+
 <div class="slide" id="slide">
   <div class="verse-text" id="verseText"></div>
   <div class="verse-ref" id="verseRef"></div>
@@ -112,6 +134,8 @@ async function poll() {
       document.getElementById('verseRef').textContent = data.reference || '';
       document.getElementById('verseTranslation').textContent = data.translation || '';
       slideEl.classList.add('visible');
+
+      applyTheme(data.theme);
     }
   } catch (e) {
     // Silent fail — server might be restarting, just keep polling
@@ -122,6 +146,33 @@ poll();
 setInterval(poll, POLL_INTERVAL);
 
 // Press F to toggle fullscreen — convenient for the operator on the projector machine
+function applyTheme(theme) {
+  const bgLayer = document.getElementById('bgLayer');
+  const overlayLayer = document.getElementById('overlayLayer');
+  const verseText = document.getElementById('verseText');
+  const verseRef = document.getElementById('verseRef');
+
+  if (!theme) {
+    bgLayer.style.background = '#000000';
+    overlayLayer.style.background = 'rgba(0,0,0,0.4)';
+    verseText.style.color = '#FFFFFF';
+    verseRef.style.color = '#C9A84C';
+    return;
+  }
+
+  if (theme.bg_type === 'image') {
+    bgLayer.style.background = `url('/theme-images/${theme.bg_value}') center/cover no-repeat`;
+  } else if (theme.bg_type === 'gradient') {
+    bgLayer.style.background = theme.bg_value;
+  } else {
+    bgLayer.style.background = theme.bg_value || '#000000';
+  }
+
+  overlayLayer.style.background = `rgba(0,0,0,${theme.overlay_opacity ?? 0.4})`;
+  verseText.style.color = theme.text_color || '#FFFFFF';
+  verseRef.style.color = theme.accent_color || '#C9A84C';
+}
+
 document.addEventListener('keydown', e => {
   if (e.key === 'f' || e.key === 'F') {
     if (!document.fullscreenElement) {

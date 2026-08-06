@@ -11,6 +11,9 @@ from groq import Groq
 from dotenv import load_dotenv
 from bible_loader import load_bibles, lookup, available_translations, get_all_verses, get_next_reference, get_prev_reference
 from song_loader import load_songs, list_songs, search_songs, get_song, create_song, update_song, delete_song
+from theme_loader import (load_themes, list_themes, get_theme, get_default_theme,
+                           create_theme, update_theme, delete_theme, save_uploaded_image)
+from fastapi import File, UploadFile, Form
 
 load_dotenv()
 
@@ -263,6 +266,7 @@ def extract_direct_reference(text: str):
 async def lifespan(app: FastAPI):
     load_bibles()
     load_songs()
+    load_themes()
     for t in available_translations():
         verses = get_all_verses(t)
         if verses:
@@ -276,7 +280,9 @@ app = FastAPI(title="Scripture Detector", lifespan=lifespan)
 
 # Serve style.css and app.js as static files
 BASE_DIR = os.path.dirname(__file__)
+os.makedirs(os.path.join(BASE_DIR, "theme_uploads"), exist_ok=True)
 app.mount("/static", StaticFiles(directory=BASE_DIR), name="static")
+app.mount("/theme-images", StaticFiles(directory=os.path.join(BASE_DIR, "theme_uploads")), name="theme-images")
 
 app.add_middleware(
     CORSMiddleware,
@@ -396,16 +402,26 @@ class SendLiveRequest(BaseModel):
     reference: str
     text: str
     translation: str = "KJV"
+    theme_id: str = "default_black"
+    kind: str = "scripture"           # 'scripture' | 'song'
+    song_id: str = ""                 # populated when kind == 'song'
+    section_index: int = 0            # populated when kind == 'song'
 
 
 @app.post("/live/send")
 async def live_send(req: SendLiveRequest):
     global live_slide
+    theme = get_theme(req.theme_id) or get_default_theme()
+
     live_slide = {
         "reference": req.reference,
         "text": req.text,
         "translation": req.translation,
         "visible": True,
+        "theme": theme,
+        "kind": req.kind,
+        "song_id": req.song_id,
+        "section_index": req.section_index,
     }
     return {"status": "sent", "slide": live_slide}
 
@@ -415,6 +431,46 @@ async def live_clear():
     global live_slide
     live_slide = {}
     return {"status": "cleared"}
+
+
+@app.get("/live/next-preview")
+async def live_next_preview():
+    """
+    Compute what the NEXT slide would be, without changing live state.
+    Powers the confidence monitor's "up next" panel.
+    """
+    if not live_slide or not live_slide.get("visible"):
+        return {}
+
+    kind = live_slide.get("kind", "scripture")
+
+    if kind == "scripture":
+        ref = live_slide.get("reference", "")
+        translation = live_slide.get("translation", "KJV").lower()
+        next_ref = get_next_reference(ref, translation)
+        if not next_ref:
+            return {}
+        translations = build_translation_lookup(next_ref)
+        text = translations.get(translation.upper(), next(iter(translations.values()), ""))
+        return {"reference": next_ref, "text": text, "kind": "scripture"}
+
+    elif kind == "song":
+        song_id = live_slide.get("song_id", "")
+        section_index = live_slide.get("section_index", 0)
+        song = get_song(song_id)
+        if not song:
+            return {}
+        next_index = section_index + 1
+        if next_index >= len(song.get("sections", [])):
+            return {}
+        sec = song["sections"][next_index]
+        return {
+            "reference": f"{song['title']} — {sec['label']}",
+            "text": "\n".join(sec["lines"]),
+            "kind": "song"
+        }
+
+    return {}
 
 
 @app.get("/search")
@@ -659,3 +715,76 @@ async def detect_scripture(req: DetectRequest):
 
     result["source"] = "groq"
     return result
+
+
+# ── Themes / Backgrounds ─────────────────────────────────────────────────────
+
+class ThemeRequest(BaseModel):
+    name: str
+    bg_type: str            # 'color' | 'gradient' | 'image'
+    bg_value: str            # hex color, CSS gradient string, or filename
+    text_color: str = "#FFFFFF"
+    accent_color: str = "#C9A84C"
+    overlay_opacity: float = 0.4
+
+
+@app.get("/themes")
+async def themes_list():
+    return {"themes": list_themes()}
+
+
+@app.get("/themes/{theme_id}")
+async def themes_get(theme_id: str):
+    theme = get_theme(theme_id)
+    if not theme:
+        raise HTTPException(status_code=404, detail="Theme not found")
+    return theme
+
+
+@app.post("/themes")
+async def themes_create(req: ThemeRequest):
+    theme = create_theme(
+        req.name, req.bg_type, req.bg_value,
+        req.text_color, req.accent_color, req.overlay_opacity
+    )
+    return theme
+
+
+@app.put("/themes/{theme_id}")
+async def themes_update(theme_id: str, req: ThemeRequest):
+    theme = update_theme(
+        theme_id, name=req.name, bg_type=req.bg_type, bg_value=req.bg_value,
+        text_color=req.text_color, accent_color=req.accent_color,
+        overlay_opacity=req.overlay_opacity
+    )
+    if not theme:
+        raise HTTPException(status_code=404, detail="Theme not found")
+    return theme
+
+
+@app.delete("/themes/{theme_id}")
+async def themes_delete(theme_id: str):
+    if not delete_theme(theme_id):
+        raise HTTPException(status_code=400, detail="Cannot delete this theme")
+    return {"status": "deleted"}
+
+
+@app.post("/themes/upload-image")
+async def themes_upload_image(file: UploadFile = File(...)):
+    """Upload a background image for use in a theme. Returns the stored filename/URL."""
+    contents = await file.read()
+
+    max_size = 8 * 1024 * 1024  # 8MB cap
+    if len(contents) > max_size:
+        raise HTTPException(status_code=400, detail="Image too large (max 8MB)")
+
+    stored_name = save_uploaded_image(file.filename, contents)
+    return {"filename": stored_name, "url": f"/theme-images/{stored_name}"}
+
+
+# ── Confidence Monitor ────────────────────────────────────────────────────────
+
+@app.get("/confidence", response_class=HTMLResponse)
+async def confidence_page():
+    with open(os.path.join(BASE_DIR, "confidence.html")) as f:
+        return f.read()

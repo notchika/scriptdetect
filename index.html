@@ -41,7 +41,83 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg>
       Clear Live Screen
     </button>
+    <a class="toolbar-btn" href="/confidence" target="_blank">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      Confidence Monitor
+    </a>
+    <select class="translation-select" id="themeSelect" onchange="onThemeSelected()"></select>
+    <button class="toolbar-btn" onclick="openThemeManager()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+      Manage Themes
+    </button>
     <div class="toolbar-hint" id="overlayHint">OBS: add Browser Source → <span id="overlayUrl"></span></div>
+  </div>
+
+  <!-- Theme manager modal -->
+  <div class="song-editor-overlay" id="themeManagerOverlay">
+    <div class="song-editor-modal">
+      <div class="song-editor-header">
+        <span>Manage Themes &amp; Backgrounds</span>
+        <button class="card-delete-btn" onclick="closeThemeManager()">&#x2715;</button>
+      </div>
+      <div class="song-editor-body">
+        <div id="themeManagerList" class="theme-manager-list"></div>
+
+        <div class="theme-new-form">
+          <div class="transcript-label">Add New Theme</div>
+          <input type="text" id="newThemeName" placeholder="Theme name" class="song-editor-input">
+
+          <select id="newThemeBgType" class="song-editor-input" onchange="toggleThemeBgFields()">
+            <option value="color">Solid Color</option>
+            <option value="gradient">CSS Gradient</option>
+            <option value="image">Image Upload</option>
+          </select>
+
+          <div id="themeColorField">
+            <label class="theme-field-label">Background Color</label>
+            <input type="color" id="newThemeColorValue" value="#0E1829" class="theme-color-input">
+          </div>
+
+          <div id="themeGradientField" style="display:none;">
+            <label class="theme-field-label">CSS Gradient</label>
+            <input type="text" id="newThemeGradientValue" placeholder="linear-gradient(135deg, #1a1a2e, #16213e)" class="song-editor-input">
+          </div>
+
+          <div id="themeImageField" style="display:none;">
+            <label class="theme-field-label">Background Image</label>
+            <input type="file" id="newThemeImageFile" accept="image/*" class="song-editor-input">
+          </div>
+
+          <label class="theme-field-label">Text Color</label>
+          <input type="color" id="newThemeTextColor" value="#FFFFFF" class="theme-color-input">
+
+          <label class="theme-field-label">Accent Color (reference text)</label>
+          <input type="color" id="newThemeAccentColor" value="#C9A84C" class="theme-color-input">
+
+          <label class="theme-field-label">Dark Overlay Opacity (readability over images/gradients)</label>
+          <input type="range" id="newThemeOverlay" min="0" max="0.8" step="0.05" value="0.4">
+
+          <button class="btn-sm btn-detect-sm" onclick="createThemeFromForm()">Create Theme</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live preview modal (renders exactly like /live, never sends to server) -->
+  <div class="preview-overlay" id="previewOverlay">
+    <div class="preview-container">
+      <button class="preview-close-btn" onclick="closePreview()">&#x2715; Close Preview</button>
+      <div class="preview-slide-frame">
+        <div id="previewBgLayer" class="preview-bg-layer"></div>
+        <div id="previewOverlayLayer" class="preview-overlay-layer"></div>
+        <div class="preview-slide-content">
+          <div class="preview-verse-text" id="previewText"></div>
+          <div class="preview-verse-ref" id="previewRef"></div>
+          <div class="preview-verse-translation" id="previewTranslation"></div>
+        </div>
+      </div>
+      <div class="preview-hint">This is a preview only — nothing has been sent to the live output.</div>
+    </div>
   </div>
 
   <div class="live-status" id="liveStatus">No live slide active</div>

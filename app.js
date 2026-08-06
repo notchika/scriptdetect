@@ -20,6 +20,8 @@ const seenReferences = new Set(); // tracks references already shown this sessio
 // ── Live navigation state ─────────────────────────────────────────────────────
 let currentLiveRef = null;
 let currentLiveTranslation = 'KJV';
+let selectedThemeId = 'default_black';
+let allThemesCache = [];
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -321,9 +323,14 @@ async function detectAndAppend(text) {
         <div class="detection-body">
           <div class="phrase-block">"${d.detected_phrase || ''}"</div>
           ${d.explanation ? `<div class="expl">${d.explanation}</div>` : ''}
-          <button class="btn-send-live" onclick='sendToLive(${JSON.stringify(d.reference || "")}, ${JSON.stringify(kjvText)}, "KJV")'>
-            &#9658; Send to Live
-          </button>
+          <div class="card-actions-row">
+            <button class="btn-preview" onclick='previewSlide(${JSON.stringify(d.reference || "")}, ${JSON.stringify(kjvText)}, "KJV")'>
+              &#128065; Preview
+            </button>
+            <button class="btn-send-live" onclick='sendToLive(${JSON.stringify(d.reference || "")}, ${JSON.stringify(kjvText)}, "KJV")'>
+              &#9658; Send to Live
+            </button>
+          </div>
           ${buildTranslationsBlock(d.translations, cardCounter)}
         </div>`;
       results.appendChild(card);
@@ -361,17 +368,21 @@ document.addEventListener('keydown', e => {
 
 // ── Send to Live / Manual Search ──────────────────────────────────────────────
 
-async function sendToLive(reference, text, translation) {
+async function sendToLive(reference, text, translation, kind = 'scripture', songId = '', sectionIndex = 0) {
   try {
     const res = await fetch('/live/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reference, text, translation })
+      body: JSON.stringify({
+        reference, text, translation,
+        theme_id: selectedThemeId,
+        kind, song_id: songId, section_index: sectionIndex
+      })
     });
     if (!res.ok) throw new Error('Failed to send to live');
 
     // Track what's live now so arrow-key navigation knows where to move from
-    currentLiveRef = reference;
+    currentLiveRef = kind === 'scripture' ? reference : null;
     currentLiveTranslation = translation;
 
     const liveStatus = document.getElementById('liveStatus');
@@ -506,6 +517,7 @@ async function manualSearch() {
           <span class="trans-label">${t}</span>
           ${text
             ? `<span class="trans-text">${text}</span>
+               <button class="btn-preview-sm" onclick='previewSlide(${JSON.stringify(data.reference)}, ${JSON.stringify(text)}, "${t}")'>Preview</button>
                <button class="btn-send-live-sm" onclick='sendToLive(${JSON.stringify(data.reference)}, ${JSON.stringify(text)}, "${t}")'>
                  Send Live
                </button>`
@@ -639,9 +651,14 @@ async function openSong(songId) {
           <div class="song-section-card">
             <div class="song-section-label">${sec.label}</div>
             <div class="song-section-lines">${sec.lines.join('<br>')}</div>
-            <button class="btn-send-live" onclick='sendSongSectionLive(${JSON.stringify(song)}, ${i})'>
-              &#9658; Send to Live
-            </button>
+            <div class="card-actions-row">
+              <button class="btn-preview" onclick='previewSlide(${JSON.stringify(song.title + " — " + sec.label)}, ${JSON.stringify(sec.lines.join(String.fromCharCode(10)))}, "LYRICS")'>
+                &#128065; Preview
+              </button>
+              <button class="btn-send-live" onclick='sendSongSectionLive(${JSON.stringify(song)}, ${i})'>
+                &#9658; Send to Live
+              </button>
+            </div>
           </div>
         `).join('')}
       </div>
@@ -659,7 +676,7 @@ async function sendSongSectionLive(song, sectionIndex) {
   const text = section.lines.join('\n');
   const reference = `${song.title} — ${section.label}`;
 
-  await sendToLive(reference, text, 'LYRICS');
+  await sendToLive(reference, text, 'LYRICS', 'song', song.id, sectionIndex);
 
   // Track song-specific nav state so arrow keys move between sections
   currentLiveSong = { song, sectionIndex };
@@ -786,4 +803,158 @@ async function deleteSongFromEditor() {
 // Load song list on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadSongList();
+});
+
+// ── Themes / Backgrounds ────────────────────────────────────────────────────
+
+async function loadThemes() {
+  try {
+    const res = await fetch('/themes');
+    const data = await res.json();
+    allThemesCache = data.themes || [];
+
+    const select = document.getElementById('themeSelect');
+    if (select) {
+      select.innerHTML = allThemesCache.map(t =>
+        `<option value="${t.id}" ${t.id === selectedThemeId ? 'selected' : ''}>${t.name}</option>`
+      ).join('');
+    }
+  } catch (err) {
+    console.error('loadThemes error:', err);
+  }
+}
+
+function onThemeSelected() {
+  selectedThemeId = document.getElementById('themeSelect').value;
+}
+
+function openThemeManager() {
+  document.getElementById('themeManagerOverlay').classList.add('visible');
+  renderThemeManagerList();
+}
+
+function closeThemeManager() {
+  document.getElementById('themeManagerOverlay').classList.remove('visible');
+}
+
+function renderThemeManagerList() {
+  const listEl = document.getElementById('themeManagerList');
+  listEl.innerHTML = allThemesCache.map(t => `
+    <div class="theme-item">
+      <div class="theme-swatch" style="${themeSwatchStyle(t)}"></div>
+      <div class="theme-item-name">${t.name}</div>
+      ${t.id !== 'default_black' ? `<button class="card-delete-btn" onclick="deleteThemeConfirm('${t.id}')">&#x2715;</button>` : ''}
+    </div>
+  `).join('');
+}
+
+function themeSwatchStyle(theme) {
+  if (theme.bg_type === 'image') {
+    return `background-image:url('/theme-images/${theme.bg_value}');background-size:cover;background-position:center;`;
+  }
+  return `background:${theme.bg_value};`;
+}
+
+async function deleteThemeConfirm(themeId) {
+  if (!confirm('Delete this theme?')) return;
+  try {
+    await fetch(`/themes/${themeId}`, { method: 'DELETE' });
+    await loadThemes();
+    renderThemeManagerList();
+  } catch (err) {
+    alert('Error deleting theme: ' + err.message);
+  }
+}
+
+async function createThemeFromForm() {
+  const name = document.getElementById('newThemeName').value.trim();
+  const bgType = document.getElementById('newThemeBgType').value;
+  const textColor = document.getElementById('newThemeTextColor').value;
+  const accentColor = document.getElementById('newThemeAccentColor').value;
+  const overlayOpacity = parseFloat(document.getElementById('newThemeOverlay').value) || 0.4;
+
+  if (!name) { alert('Theme name is required'); return; }
+
+  let bgValue = '';
+
+  if (bgType === 'color') {
+    bgValue = document.getElementById('newThemeColorValue').value;
+  } else if (bgType === 'gradient') {
+    bgValue = document.getElementById('newThemeGradientValue').value.trim();
+    if (!bgValue) { alert('Enter a CSS gradient, e.g. linear-gradient(135deg, #1a1a2e, #16213e)'); return; }
+  } else if (bgType === 'image') {
+    const fileInput = document.getElementById('newThemeImageFile');
+    if (!fileInput.files.length) { alert('Choose an image file'); return; }
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    try {
+      const uploadRes = await fetch('/themes/upload-image', { method: 'POST', body: formData });
+      if (!uploadRes.ok) throw new Error('Image upload failed');
+      const uploadData = await uploadRes.json();
+      bgValue = uploadData.filename;
+    } catch (err) {
+      alert('Error uploading image: ' + err.message);
+      return;
+    }
+  }
+
+  try {
+    const res = await fetch('/themes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name, bg_type: bgType, bg_value: bgValue,
+        text_color: textColor, accent_color: accentColor,
+        overlay_opacity: overlayOpacity
+      })
+    });
+    if (!res.ok) throw new Error('Failed to create theme');
+
+    document.getElementById('newThemeName').value = '';
+    await loadThemes();
+    renderThemeManagerList();
+  } catch (err) {
+    alert('Error creating theme: ' + err.message);
+  }
+}
+
+function toggleThemeBgFields() {
+  const bgType = document.getElementById('newThemeBgType').value;
+  document.getElementById('themeColorField').style.display = bgType === 'color' ? 'block' : 'none';
+  document.getElementById('themeGradientField').style.display = bgType === 'gradient' ? 'block' : 'none';
+  document.getElementById('themeImageField').style.display = bgType === 'image' ? 'block' : 'none';
+}
+
+// ── Preview (renders exactly like /live but never touches server state) ──────
+
+function previewSlide(reference, text, translation) {
+  const theme = allThemesCache.find(t => t.id === selectedThemeId) || {
+    bg_type: 'color', bg_value: '#000000', text_color: '#FFFFFF',
+    accent_color: '#C9A84C', overlay_opacity: 0.4
+  };
+
+  const bgStyle = theme.bg_type === 'image'
+    ? `background:url('/theme-images/${theme.bg_value}') center/cover no-repeat;`
+    : `background:${theme.bg_value};`;
+
+  document.getElementById('previewBgLayer').style.cssText = bgStyle;
+  document.getElementById('previewOverlayLayer').style.background = `rgba(0,0,0,${theme.overlay_opacity ?? 0.4})`;
+  document.getElementById('previewText').textContent = text || '';
+  document.getElementById('previewText').style.color = theme.text_color || '#FFFFFF';
+  document.getElementById('previewRef').textContent = reference || '';
+  document.getElementById('previewRef').style.color = theme.accent_color || '#C9A84C';
+  document.getElementById('previewTranslation').textContent = translation || '';
+
+  document.getElementById('previewOverlay').classList.add('visible');
+}
+
+function closePreview() {
+  document.getElementById('previewOverlay').classList.remove('visible');
+}
+
+// Load themes on page load
+document.addEventListener('DOMContentLoaded', () => {
+  loadThemes();
 });

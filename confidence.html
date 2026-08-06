@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Confidence Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: #0E1829;
+    color: #E8EDF5;
+    font-family: 'Inter', sans-serif;
+    overflow: hidden;
+  }
+
+  .wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 2rem;
+    gap: 1.5rem;
+  }
+
+  .panel-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6B7A96;
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+  }
+
+  .current-panel {
+    flex: 2;
+    background: #1C2840;
+    border: 2px solid #4CAF8A;
+    border-radius: 14px;
+    padding: 2.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    position: relative;
+  }
+
+  .live-badge {
+    position: absolute;
+    top: 1.2rem; left: 1.2rem;
+    background: rgba(76,175,138,0.15);
+    color: #4CAF8A;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: blink 1s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+  .current-text {
+    font-family: 'Lora', serif;
+    font-weight: 600;
+    font-size: clamp(1.8rem, 4vw, 3rem);
+    line-height: 1.4;
+    color: #FFFFFF;
+    margin-bottom: 1.5rem;
+  }
+
+  .current-ref {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: #C9A84C;
+    letter-spacing: 0.03em;
+  }
+
+  .next-panel {
+    flex: 1;
+    background: #162238;
+    border: 1px solid #263350;
+    border-radius: 14px;
+    padding: 1.5rem 2rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .next-text {
+    font-family: 'Lora', serif;
+    font-style: italic;
+    font-size: 1.3rem;
+    color: #A8B4CC;
+    line-height: 1.5;
+    margin-bottom: 0.5rem;
+  }
+
+  .next-ref {
+    font-size: 13px;
+    color: #6B7A96;
+  }
+
+  .empty-state {
+    color: #6B7A96;
+    font-style: italic;
+    font-size: 1rem;
+  }
+
+  .clock {
+    position: absolute;
+    top: 1.2rem; right: 1.2rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: #6B7A96;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div>
+    <div class="panel-label">Now Live</div>
+    <div class="current-panel" id="currentPanel">
+      <div class="live-badge"><span class="live-dot"></span> LIVE</div>
+      <div class="clock" id="clock"></div>
+      <div class="current-text" id="currentText">Nothing live yet</div>
+      <div class="current-ref" id="currentRef"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel-label">Up Next</div>
+    <div class="next-panel" id="nextPanel">
+      <div class="empty-state" id="nextEmptyState">No prediction available</div>
+      <div id="nextContent" style="display:none;">
+        <div class="next-text" id="nextText"></div>
+        <div class="next-ref" id="nextRef"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const POLL_INTERVAL = 1000;
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+updateClock();
+setInterval(updateClock, 1000 * 30);
+
+async function pollCurrent() {
+  try {
+    const res = await fetch('/live/current');
+    const data = await res.json();
+
+    if (!data || !data.visible || !data.reference) {
+      document.getElementById('currentText').textContent = 'Nothing live yet';
+      document.getElementById('currentRef').textContent = '';
+      return;
+    }
+
+    document.getElementById('currentText').textContent = data.text || '';
+    document.getElementById('currentRef').textContent = data.reference || '';
+  } catch (e) { /* silent */ }
+}
+
+async function pollNext() {
+  try {
+    const res = await fetch('/live/next-preview');
+    const data = await res.json();
+
+    const emptyEl = document.getElementById('nextEmptyState');
+    const contentEl = document.getElementById('nextContent');
+
+    if (!data || !data.reference) {
+      emptyEl.style.display = 'block';
+      contentEl.style.display = 'none';
+      return;
+    }
+
+    emptyEl.style.display = 'none';
+    contentEl.style.display = 'block';
+    document.getElementById('nextText').textContent = data.text || '';
+    document.getElementById('nextRef').textContent = data.reference || '';
+  } catch (e) { /* silent */ }
+}
+
+function poll() {
+  pollCurrent();
+  pollNext();
+}
+
+poll();
+setInterval(poll, POLL_INTERVAL);
+</script>
+</body>
+</html>
