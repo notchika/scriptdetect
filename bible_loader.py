@@ -2,7 +2,7 @@ import json
 import os
 import re
 
-TRANSLATIONS = ["kjv", "amp", "nlt", "niv", "nkjv"]
+TRANSLATIONS = ["kjv", "amp", "nlt", "niv", "nkjv", "cjb"]
 
 # { "kjv": {"Genesis 1:1": "In the beginning..."}, ... }
 _bibles: dict = {}

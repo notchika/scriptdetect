@@ -5,7 +5,7 @@ const EXAMPLES = [
   "We are more than conquerors through him who loved us. Nothing — not death, not life, not angels or rulers — can separate us from the love of God. So put on the whole armor of God and stand firm."
 ];
 
-const ALL_TRANSLATIONS  = ["KJV", "NIV", "NKJV", "NLT", "AMP"];
+const ALL_TRANSLATIONS  = ["KJV", "NIV", "NKJV", "NLT", "AMP", "CJB"];
 const SILENCE_DELAY     = 1500;   // ms of silence before auto-detect triggers
 const MIN_NEW_CHARS     = 8;      // minimum new characters before triggering
 

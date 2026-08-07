@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:cdn.jsdelivr.net)",
+      "WebFetch(domain:four.bible)",
+      "WebFetch(domain:faith.tools)",
+      "WebFetch(domain:bible.helloao.org)",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import requests; print\\('ok', requests.__version__\\)\")",
+      "Bash(cd \"c:/Users/chika/LW Insight/scriptdetect\" && cp \"C:\\\\Users\\\\chika\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-chika-LW-Insight-scriptdetect\\\\0b76e3ae-9ed0-437e-abac-d350f5b0fe09\\\\scratchpad\\\\cjb.json\" ./bibles/cjb.json && ls -la ./bibles)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "WebFetch(domain:getbible.net)",
+      "WebFetch(domain:gatekeeper.getbible.life)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\chika\\LW Insight\\scriptdetect\\bibles"
+    ]
+  }
+}

@@ -319,7 +319,7 @@ Rules:
 - If nothing found: {"detections": [], "summary": "No specific scripture references detected."}
 - Return ONLY the JSON object, nothing else"""
 
-TRANSLATIONS = ["kjv", "niv", "nkjv", "nlt", "amp"]
+TRANSLATIONS = ["kjv", "niv", "nkjv", "nlt", "amp", "cjb"]
 
 
 def build_translation_lookup(ref: str) -> dict:
@@ -607,7 +607,7 @@ async def debug_files():
         "all_files_found": all_files,
         "json_files_found": json_files,
         "translations_currently_loaded": available_translations(),
-        "expected_translations": ["kjv", "niv", "nkjv", "nlt", "amp"],
+        "expected_translations": ["kjv", "niv", "nkjv", "nlt", "amp", "cjb"],
     }
 
 
