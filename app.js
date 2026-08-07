@@ -535,6 +535,13 @@ async function manualSearch() {
   }
 }
 
+function clearManualSearch() {
+  document.getElementById('manualSearchInput').value = '';
+  const resultBox = document.getElementById('manualSearchResult');
+  resultBox.innerHTML = '';
+  resultBox.classList.remove('visible');
+}
+
 // ── Delete single card ───────────────────────────────────────────────────────
 
 function deleteCard(cardId, detectionIndex) {
