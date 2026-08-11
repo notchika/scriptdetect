@@ -5,7 +5,7 @@ const EXAMPLES = [
   "We are more than conquerors through him who loved us. Nothing — not death, not life, not angels or rulers — can separate us from the love of God. So put on the whole armor of God and stand firm."
 ];
 
-const ALL_TRANSLATIONS  = ["KJV", "NIV", "NKJV", "NLT", "AMP", "CJB"];
+const ALL_TRANSLATIONS  = ["KJV", "NIV", "NKJV", "NLT", "AMP", "CJB", "ASV", "WEB"];
 const SILENCE_DELAY     = 1500;   // ms of silence before auto-detect triggers
 const MIN_NEW_CHARS     = 8;      // minimum new characters before triggering
 
@@ -932,6 +932,66 @@ function toggleThemeBgFields() {
   document.getElementById('themeColorField').style.display = bgType === 'color' ? 'block' : 'none';
   document.getElementById('themeGradientField').style.display = bgType === 'gradient' ? 'block' : 'none';
   document.getElementById('themeImageField').style.display = bgType === 'image' ? 'block' : 'none';
+}
+
+// ── Backup / Restore (Songs + Themes) ─────────────────────────────────────────
+// Songs and Themes only live in local JSON files on the server, which some hosts
+// (e.g. Render's free tier) wipe on every redeploy — this is the safety net.
+
+async function exportBackup() {
+  try {
+    const res = await fetch('/backup/export');
+    if (!res.ok) throw new Error('Export failed');
+    const blob = await res.blob();
+
+    const date = new Date().toISOString().slice(0, 10);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `scriptdetect-backup-${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  } catch (err) {
+    alert('Error exporting backup: ' + err.message);
+  }
+}
+
+function triggerImportBackup() {
+  document.getElementById('importBackupFile').click();
+}
+
+async function importBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (!confirm('Import this backup? Songs and Themes with matching IDs will be overwritten — everything else stays as is.')) {
+    event.target.value = '';
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch('/backup/import', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Import failed');
+    }
+    const data = await res.json();
+    alert(`Imported ${data.songs_imported} song(s), ${data.themes_imported} theme(s), ${data.images_restored} image(s).`);
+
+    await loadThemes();
+    if (document.getElementById('themeManagerOverlay').classList.contains('visible')) {
+      renderThemeManagerList();
+    }
+    await loadSongList();
+  } catch (err) {
+    alert('Error importing backup: ' + err.message);
+  } finally {
+    event.target.value = '';
+  }
 }
 
 // ── Preview (renders exactly like /live but never touches server state) ──────

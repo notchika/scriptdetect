@@ -64,6 +64,24 @@ def get_song(song_id: str) -> dict | None:
     return _songs.get(song_id)
 
 
+def get_all_songs() -> dict:
+    """Return the full {song_id: song} dict — used for backup export."""
+    return _songs
+
+
+def import_songs(data: dict) -> int:
+    """Merge songs from a backup file into the library, overwriting by id. Returns count imported."""
+    count = 0
+    for song_id, song in data.items():
+        if not isinstance(song, dict):
+            continue
+        _songs[song_id] = song
+        count += 1
+    if count:
+        _save()
+    return count
+
+
 def create_song(title: str, author: str, sections: list) -> dict:
     song_id = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_") or str(uuid.uuid4())[:8]
     # Avoid collisions

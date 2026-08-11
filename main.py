@@ -1,18 +1,21 @@
 import os
 import json
 import re
+import base64
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from groq import Groq
 from dotenv import load_dotenv
 from bible_loader import load_bibles, lookup, available_translations, get_all_verses, get_next_reference, get_prev_reference
-from song_loader import load_songs, list_songs, search_songs, get_song, create_song, update_song, delete_song
+from song_loader import load_songs, list_songs, search_songs, get_song, create_song, update_song, delete_song, get_all_songs, import_songs
 from theme_loader import (load_themes, list_themes, get_theme, get_default_theme,
-                           create_theme, update_theme, delete_theme, save_uploaded_image)
+                           create_theme, update_theme, delete_theme, save_uploaded_image,
+                           get_all_themes, import_themes, get_uploaded_image_bytes, restore_uploaded_image)
 from fastapi import File, UploadFile, Form
 
 load_dotenv()
@@ -319,7 +322,7 @@ Rules:
 - If nothing found: {"detections": [], "summary": "No specific scripture references detected."}
 - Return ONLY the JSON object, nothing else"""
 
-TRANSLATIONS = ["kjv", "niv", "nkjv", "nlt", "amp", "cjb"]
+TRANSLATIONS = ["kjv", "niv", "nkjv", "nlt", "amp", "cjb", "asv", "web"]
 
 
 def build_translation_lookup(ref: str) -> dict:
@@ -607,7 +610,7 @@ async def debug_files():
         "all_files_found": all_files,
         "json_files_found": json_files,
         "translations_currently_loaded": available_translations(),
-        "expected_translations": ["kjv", "niv", "nkjv", "nlt", "amp", "cjb"],
+        "expected_translations": ["kjv", "niv", "nkjv", "nlt", "amp", "cjb", "asv", "web"],
     }
 
 
@@ -780,6 +783,82 @@ async def themes_upload_image(file: UploadFile = File(...)):
 
     stored_name = save_uploaded_image(file.filename, contents)
     return {"filename": stored_name, "url": f"/theme-images/{stored_name}"}
+
+
+# ── Backup / Restore (Songs + Themes) ────────────────────────────────────────
+# The Song Library and custom Themes only live in local JSON files — on a host
+# without a persistent disk (e.g. Render's free tier) a redeploy wipes them.
+# These two endpoints let that data be downloaded and restored as a portable file.
+
+@app.get("/backup/export")
+async def export_backup():
+    songs = get_all_songs()
+    themes = get_all_themes()
+
+    # Bundle any uploaded background images referenced by an image-type theme
+    # as base64 so the backup is self-contained and images survive a restore.
+    theme_images = {}
+    for theme in themes.values():
+        if theme.get("bg_type") == "image" and theme.get("bg_value"):
+            img_bytes = get_uploaded_image_bytes(theme["bg_value"])
+            if img_bytes:
+                theme_images[theme["bg_value"]] = base64.b64encode(img_bytes).decode("ascii")
+
+    payload = {
+        "version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "songs": songs,
+        "themes": themes,
+        "theme_images": theme_images,
+    }
+
+    filename = f"scriptdetect-backup-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.json"
+    return JSONResponse(
+        content=payload,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@app.post("/backup/import")
+async def import_backup(file: UploadFile = File(...)):
+    """Restore songs/themes/images from a file produced by /backup/export.
+    Merges by id — matching ids are overwritten, everything else is left alone."""
+    try:
+        raw = await file.read()
+        data = json.loads(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid backup file — not valid JSON")
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Invalid backup file format")
+
+    songs_data = data.get("songs", {})
+    themes_data = data.get("themes", {})
+    images_data = data.get("theme_images", {})
+
+    if not isinstance(songs_data, dict) or not isinstance(themes_data, dict) or not isinstance(images_data, dict):
+        raise HTTPException(status_code=400, detail="Invalid backup file format")
+
+    # Restore images first so imported themes' bg_value references resolve immediately
+    images_restored = 0
+    for filename, b64data in images_data.items():
+        if not isinstance(b64data, str):
+            continue
+        try:
+            img_bytes = base64.b64decode(b64data)
+        except Exception:
+            continue
+        restore_uploaded_image(filename, img_bytes)
+        images_restored += 1
+
+    songs_imported = import_songs(songs_data)
+    themes_imported = import_themes(themes_data)
+
+    return {
+        "songs_imported": songs_imported,
+        "themes_imported": themes_imported,
+        "images_restored": images_restored,
+    }
 
 
 # ── Confidence Monitor ────────────────────────────────────────────────────────

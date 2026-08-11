@@ -117,3 +117,40 @@ def save_uploaded_image(filename: str, file_bytes: bytes) -> str:
     with open(path, "wb") as f:
         f.write(file_bytes)
     return stored_name
+
+
+def get_all_themes() -> dict:
+    """Return the full {theme_id: theme} dict — used for backup export."""
+    return _themes
+
+
+def import_themes(data: dict) -> int:
+    """Merge themes from a backup file into the library, overwriting by id. Returns count imported."""
+    count = 0
+    for theme_id, theme in data.items():
+        if not isinstance(theme, dict):
+            continue
+        _themes[theme_id] = theme
+        count += 1
+    if count:
+        _save()
+    return count
+
+
+def get_uploaded_image_bytes(filename: str) -> bytes | None:
+    """Read a stored background image's raw bytes — used for backup export."""
+    _, uploads_dir = _get_paths()
+    path = os.path.join(uploads_dir, os.path.basename(filename))
+    if not os.path.isfile(path):
+        return None
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def restore_uploaded_image(filename: str, file_bytes: bytes):
+    """Write image bytes back to their original stored filename — used by backup import
+    so a restored theme's bg_value keeps pointing at a file that actually exists."""
+    _, uploads_dir = _get_paths()
+    path = os.path.join(uploads_dir, os.path.basename(filename))
+    with open(path, "wb") as f:
+        f.write(file_bytes)

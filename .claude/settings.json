@@ -11,7 +11,10 @@
       "Bash(cd \"c:/Users/chika/LW Insight/scriptdetect\" && cp \"C:\\\\Users\\\\chika\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-chika-LW-Insight-scriptdetect\\\\0b76e3ae-9ed0-437e-abac-d350f5b0fe09\\\\scratchpad\\\\cjb.json\" ./bibles/cjb.json && ls -la ./bibles)",
       "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
       "WebFetch(domain:getbible.net)",
-      "WebFetch(domain:gatekeeper.getbible.life)"
+      "WebFetch(domain:gatekeeper.getbible.life)",
+      "WebFetch(domain:bolls.life)",
+      "Bash(python fetch_translation.py ASV WEB)",
+      "Bash(python -c \"import httpx; print\\('httpx ok'\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\chika\\LW Insight\\scriptdetect\\bibles"
