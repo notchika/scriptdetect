@@ -24,8 +24,15 @@ def _get_model():
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        print(f"[Embeddings] Loading model '{MODEL_NAME}'...")
-        _model = SentenceTransformer(MODEL_NAME)
+        print(f"[Embeddings] Loading model '{MODEL_NAME}' (ONNX backend — low memory)...")
+        # ONNX backend avoids loading full PyTorch training graph, cutting
+        # memory footprint significantly vs the default torch backend —
+        # important for fitting inside constrained hosting (e.g. Render free tier).
+        try:
+            _model = SentenceTransformer(MODEL_NAME, backend="onnx")
+        except Exception as e:
+            print(f"[Embeddings] ONNX backend unavailable ({e}), falling back to default backend")
+            _model = SentenceTransformer(MODEL_NAME)
     return _model
 
 
