@@ -3,3 +3,5 @@ uvicorn[standard]
 groq
 python-dotenv
 python-multipart
+sentence-transformers
+numpy

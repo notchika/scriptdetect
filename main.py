@@ -1,22 +1,20 @@
 import os
 import json
 import re
-import base64
-from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from groq import Groq
 from dotenv import load_dotenv
 from bible_loader import load_bibles, lookup, available_translations, get_all_verses, get_next_reference, get_prev_reference
-from song_loader import load_songs, list_songs, search_songs, get_song, create_song, update_song, delete_song, get_all_songs, import_songs
+from song_loader import load_songs, list_songs, search_songs, get_song, create_song, update_song, delete_song
 from theme_loader import (load_themes, list_themes, get_theme, get_default_theme,
-                           create_theme, update_theme, delete_theme, save_uploaded_image,
-                           get_all_themes, import_themes, get_uploaded_image_bytes, restore_uploaded_image)
+                           create_theme, update_theme, delete_theme, save_uploaded_image)
 from fastapi import File, UploadFile, Form
+from verse_embeddings import build_or_load_index, semantic_search, is_index_ready
 
 load_dotenv()
 
@@ -270,6 +268,15 @@ async def lifespan(app: FastAPI):
     load_bibles()
     load_songs()
     load_themes()
+
+    # Build/load local semantic search index from KJV verses.
+    # This replaces most Groq calls with an instant local lookup.
+    kjv_verses = get_all_verses("kjv")
+    if kjv_verses:
+        build_or_load_index(kjv_verses)
+    else:
+        print("[Embeddings] WARNING: KJV not loaded — local semantic search disabled, "
+              "falling back to Groq for all detections")
     for t in available_translations():
         verses = get_all_verses(t)
         if verses:
@@ -322,7 +329,7 @@ Rules:
 - If nothing found: {"detections": [], "summary": "No specific scripture references detected."}
 - Return ONLY the JSON object, nothing else"""
 
-TRANSLATIONS = ["kjv", "niv", "nkjv", "nlt", "amp", "cjb", "asv", "web"]
+TRANSLATIONS = ["kjv", "niv", "nkjv", "nlt", "amp"]
 
 
 def build_translation_lookup(ref: str) -> dict:
@@ -610,7 +617,7 @@ async def debug_files():
         "all_files_found": all_files,
         "json_files_found": json_files,
         "translations_currently_loaded": available_translations(),
-        "expected_translations": ["kjv", "niv", "nkjv", "nlt", "amp", "cjb", "asv", "web"],
+        "expected_translations": ["kjv", "niv", "nkjv", "nlt", "amp"],
     }
 
 
@@ -627,6 +634,52 @@ async def debug_lookup(ref: str, translation: str = "kjv"):
         "translation_loaded": translation.lower() in available_translations(),
         "total_verses_in_translation": len(verses),
         "sample_keys_from_file": close
+    }
+
+
+def local_semantic_detect(text: str) -> dict | None:
+    """
+    Fast local nearest-neighbor search over KJV verse embeddings. Returns a
+    detection dict matching Groq's output shape, or None if no match is
+    confident enough (caller should fall back to Groq in that case).
+
+    Similarity thresholds (cosine similarity, roughly calibrated for
+    all-MiniLM-L6-v2 on short sermon-length phrases):
+      >= 0.80  -> near-exact wording          -> direct_quote,      high
+      >= 0.60  -> same meaning, reworded       -> paraphrase,        high
+      >= 0.45  -> loosely related theme/echo   -> semantic_allusion, medium
+      <  0.45  -> not confident -> return None, let Groq handle it
+                  (covers story references like "the prodigal son",
+                  which need world knowledge pure text similarity lacks)
+    """
+    results = semantic_search(text, top_k=1)
+    if not results:
+        return None
+
+    top = results[0]
+    similarity = top["similarity"]
+    reference = top["reference"]
+
+    if similarity >= 0.80:
+        detection_type, confidence = "direct_quote", "high"
+    elif similarity >= 0.60:
+        detection_type, confidence = "paraphrase", "high"
+    elif similarity >= 0.45:
+        detection_type, confidence = "semantic_allusion", "medium"
+    else:
+        return None  # not confident — let Groq take a shot at it
+
+    translations = build_translation_lookup(reference)
+    if not translations:
+        return None  # shouldn't happen since ref came from our own KJV index, but be safe
+
+    return {
+        "type": detection_type,
+        "reference": reference,
+        "detected_phrase": text.strip(),
+        "confidence": confidence,
+        "explanation": f"Matched locally via semantic similarity ({similarity:.2f}).",
+        "translations": translations
     }
 
 
@@ -656,9 +709,25 @@ async def detect_scripture(req: DetectRequest):
                 "summary": f"Direct reference call to {ref}.",
                 "source": "local_lookup"   # tells frontend no Groq was used
             }
-        # ref found but not in our JSON — fall through to Groq
+        # ref found but not in our JSON — fall through to local search / Groq
 
-    # ── Step 2: Semantic/paraphrase detection via Groq ────────────────────────
+    # ── Step 2: Local semantic search (instant, no network call) ──────────────
+    # Handles direct quotes and close paraphrases — the vast majority of real
+    # sermon references — without ever touching Groq.
+    if is_index_ready():
+        local_result = local_semantic_detect(req.text)
+        if local_result:
+            push_to_overlay(local_result)
+            return {
+                "detections": [local_result],
+                "summary": f"Detected via local semantic match: {local_result['reference']}.",
+                "source": "local_embedding"   # tells frontend this was instant, no Groq
+            }
+
+    # ── Step 3: Groq fallback ──────────────────────────────────────────────────
+    # Only reached when local search found no confident match — typically
+    # story/allusion references that need broader world knowledge to resolve
+    # (e.g. "the prodigal son" -> Luke 15), which pure text-similarity can't do.
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured in .env")
@@ -783,82 +852,6 @@ async def themes_upload_image(file: UploadFile = File(...)):
 
     stored_name = save_uploaded_image(file.filename, contents)
     return {"filename": stored_name, "url": f"/theme-images/{stored_name}"}
-
-
-# ── Backup / Restore (Songs + Themes) ────────────────────────────────────────
-# The Song Library and custom Themes only live in local JSON files — on a host
-# without a persistent disk (e.g. Render's free tier) a redeploy wipes them.
-# These two endpoints let that data be downloaded and restored as a portable file.
-
-@app.get("/backup/export")
-async def export_backup():
-    songs = get_all_songs()
-    themes = get_all_themes()
-
-    # Bundle any uploaded background images referenced by an image-type theme
-    # as base64 so the backup is self-contained and images survive a restore.
-    theme_images = {}
-    for theme in themes.values():
-        if theme.get("bg_type") == "image" and theme.get("bg_value"):
-            img_bytes = get_uploaded_image_bytes(theme["bg_value"])
-            if img_bytes:
-                theme_images[theme["bg_value"]] = base64.b64encode(img_bytes).decode("ascii")
-
-    payload = {
-        "version": 1,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
-        "songs": songs,
-        "themes": themes,
-        "theme_images": theme_images,
-    }
-
-    filename = f"scriptdetect-backup-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.json"
-    return JSONResponse(
-        content=payload,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-    )
-
-
-@app.post("/backup/import")
-async def import_backup(file: UploadFile = File(...)):
-    """Restore songs/themes/images from a file produced by /backup/export.
-    Merges by id — matching ids are overwritten, everything else is left alone."""
-    try:
-        raw = await file.read()
-        data = json.loads(raw)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid backup file — not valid JSON")
-
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=400, detail="Invalid backup file format")
-
-    songs_data = data.get("songs", {})
-    themes_data = data.get("themes", {})
-    images_data = data.get("theme_images", {})
-
-    if not isinstance(songs_data, dict) or not isinstance(themes_data, dict) or not isinstance(images_data, dict):
-        raise HTTPException(status_code=400, detail="Invalid backup file format")
-
-    # Restore images first so imported themes' bg_value references resolve immediately
-    images_restored = 0
-    for filename, b64data in images_data.items():
-        if not isinstance(b64data, str):
-            continue
-        try:
-            img_bytes = base64.b64decode(b64data)
-        except Exception:
-            continue
-        restore_uploaded_image(filename, img_bytes)
-        images_restored += 1
-
-    songs_imported = import_songs(songs_data)
-    themes_imported = import_themes(themes_data)
-
-    return {
-        "songs_imported": songs_imported,
-        "themes_imported": themes_imported,
-        "images_restored": images_restored,
-    }
 
 
 # ── Confidence Monitor ────────────────────────────────────────────────────────
