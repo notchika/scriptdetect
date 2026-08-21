@@ -430,29 +430,6 @@
   .toolbar-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .toolbar-btn.copied { border-color: var(--green); color: var(--green); }
 
-  /* Theme picker — styled to match .toolbar-btn instead of the browser's native select look */
-  .translation-select {
-    background: var(--navy-card);
-    border: 1px solid var(--navy-border);
-    border-radius: var(--radius-sm);
-    color: var(--silver);
-    font-family: 'Inter', sans-serif;
-    font-size: 12px;
-    font-weight: 500;
-    padding: 0.5rem 28px 0.5rem 1rem;
-    cursor: pointer;
-    outline: none;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B7A96' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 1rem center;
-    transition: all 0.15s;
-  }
-
-  .translation-select:hover { border-color: var(--gold); color: var(--gold); }
-  .translation-select:focus { border-color: var(--gold); }
-  .translation-select option { background: var(--navy-card); color: var(--silver); }
-
   .toolbar-hint {
     font-size: 11px;
     color: var(--silver-dim);
@@ -468,7 +445,6 @@
 
     .toolbar { gap: 0.5rem; }
     .toolbar-btn { font-size: 11px; padding: 0.45rem 0.75rem; }
-    .translation-select { font-size: 11px; padding: 0.45rem 26px 0.45rem 0.75rem; }
     .toolbar-hint { font-size: 10px; text-align: center; width: 100%; }
 
     .mic-btn { font-size: 14px; padding: 0.75rem 1.75rem; }
@@ -1175,4 +1151,73 @@
   font-size: 12px;
   color: var(--silver-dim);
   font-style: italic;
+}
+
+/* ── Auto-send toggle switch ──────────────────────────────────────────────── */
+
+.auto-send-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.auto-send-toggle input[type="checkbox"] {
+  display: none;
+}
+
+.auto-send-slider {
+  width: 36px;
+  height: 20px;
+  background: var(--navy-card);
+  border: 1px solid var(--navy-border);
+  border-radius: 20px;
+  position: relative;
+  transition: background 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+}
+
+.auto-send-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--silver-dim);
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.auto-send-toggle input:checked + .auto-send-slider {
+  background: rgba(76,175,138,0.2);
+  border-color: var(--green);
+}
+
+.auto-send-toggle input:checked + .auto-send-slider::before {
+  transform: translateX(16px);
+  background: var(--green);
+}
+
+.auto-send-label {
+  font-size: 12px;
+  color: var(--silver);
+  font-weight: 500;
+}
+
+/* Auto-sent card indicator */
+.detection-card.auto-sent {
+  border-color: rgba(76,175,138,0.4);
+  box-shadow: 0 0 0 1px rgba(76,175,138,0.15);
+}
+
+.auto-sent-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--green);
+  background: rgba(76,175,138,0.15);
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
 }
