@@ -14,7 +14,8 @@
       "WebFetch(domain:gatekeeper.getbible.life)",
       "WebFetch(domain:bolls.life)",
       "Bash(python fetch_translation.py ASV WEB)",
-      "Bash(python -c \"import httpx; print\\('httpx ok'\\)\")"
+      "Bash(python -c \"import httpx; print\\('httpx ok'\\)\")",
+      "WebFetch(domain:scriptdetect.onrender.com)"
     ],
     "additionalDirectories": [
       "c:\\Users\\chika\\LW Insight\\scriptdetect\\bibles"

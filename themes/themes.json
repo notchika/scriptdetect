@@ -1,0 +1,11 @@
+{
+  "default_black": {
+    "id": "default_black",
+    "name": "Default (Black)",
+    "bg_type": "color",
+    "bg_value": "#000000",
+    "text_color": "#FFFFFF",
+    "accent_color": "#C9A84C",
+    "overlay_opacity": 0.4
+  }
+}
