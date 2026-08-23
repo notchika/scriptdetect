@@ -14,7 +14,6 @@ from song_loader import load_songs, list_songs, search_songs, get_song, create_s
 from theme_loader import (load_themes, list_themes, get_theme, get_default_theme,
                            create_theme, update_theme, delete_theme, save_uploaded_image)
 from fastapi import File, UploadFile, Form
-from verse_embeddings import build_or_load_index, semantic_search, is_index_ready
 
 load_dotenv()
 
@@ -269,14 +268,6 @@ async def lifespan(app: FastAPI):
     load_songs()
     load_themes()
 
-    # Build/load local semantic search index from KJV verses.
-    # This replaces most Groq calls with an instant local lookup.
-    kjv_verses = get_all_verses("kjv")
-    if kjv_verses:
-        build_or_load_index(kjv_verses)
-    else:
-        print("[Embeddings] WARNING: KJV not loaded — local semantic search disabled, "
-              "falling back to Groq for all detections")
     for t in available_translations():
         verses = get_all_verses(t)
         if verses:
@@ -637,52 +628,6 @@ async def debug_lookup(ref: str, translation: str = "kjv"):
     }
 
 
-def local_semantic_detect(text: str) -> dict | None:
-    """
-    Fast local nearest-neighbor search over KJV verse embeddings. Returns a
-    detection dict matching Groq's output shape, or None if no match is
-    confident enough (caller should fall back to Groq in that case).
-
-    Similarity thresholds (cosine similarity, roughly calibrated for
-    all-MiniLM-L6-v2 on short sermon-length phrases):
-      >= 0.80  -> near-exact wording          -> direct_quote,      high
-      >= 0.60  -> same meaning, reworded       -> paraphrase,        high
-      >= 0.45  -> loosely related theme/echo   -> semantic_allusion, medium
-      <  0.45  -> not confident -> return None, let Groq handle it
-                  (covers story references like "the prodigal son",
-                  which need world knowledge pure text similarity lacks)
-    """
-    results = semantic_search(text, top_k=1)
-    if not results:
-        return None
-
-    top = results[0]
-    similarity = top["similarity"]
-    reference = top["reference"]
-
-    if similarity >= 0.80:
-        detection_type, confidence = "direct_quote", "high"
-    elif similarity >= 0.60:
-        detection_type, confidence = "paraphrase", "high"
-    elif similarity >= 0.45:
-        detection_type, confidence = "semantic_allusion", "medium"
-    else:
-        return None  # not confident — let Groq take a shot at it
-
-    translations = build_translation_lookup(reference)
-    if not translations:
-        return None  # shouldn't happen since ref came from our own KJV index, but be safe
-
-    return {
-        "type": detection_type,
-        "reference": reference,
-        "detected_phrase": text.strip(),
-        "confidence": confidence,
-        "explanation": f"Matched locally via semantic similarity ({similarity:.2f}).",
-        "translations": translations
-    }
-
-
 @app.post("/detect")
 async def detect_scripture(req: DetectRequest):
     global latest_detection
@@ -709,25 +654,9 @@ async def detect_scripture(req: DetectRequest):
                 "summary": f"Direct reference call to {ref}.",
                 "source": "local_lookup"   # tells frontend no Groq was used
             }
-        # ref found but not in our JSON — fall through to local search / Groq
+        # ref found but not in our JSON — fall through to Groq
 
-    # ── Step 2: Local semantic search (instant, no network call) ──────────────
-    # Handles direct quotes and close paraphrases — the vast majority of real
-    # sermon references — without ever touching Groq.
-    if is_index_ready():
-        local_result = local_semantic_detect(req.text)
-        if local_result:
-            push_to_overlay(local_result)
-            return {
-                "detections": [local_result],
-                "summary": f"Detected via local semantic match: {local_result['reference']}.",
-                "source": "local_embedding"   # tells frontend this was instant, no Groq
-            }
-
-    # ── Step 3: Groq fallback ──────────────────────────────────────────────────
-    # Only reached when local search found no confident match — typically
-    # story/allusion references that need broader world knowledge to resolve
-    # (e.g. "the prodigal son" -> Luke 15), which pure text-similarity can't do.
+    # ── Step 2: Semantic/paraphrase detection via Groq ────────────────────────
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured in .env")
