@@ -2,17 +2,14 @@
 Local semantic search over Bible verses using sentence embeddings.
 Replaces Groq LLM calls for the common case (direct quotes, close paraphrases)
 with a fast local nearest-neighbor lookup — no network round-trip needed.
-
-At startup: loads a pre-computed embedding index from disk if present,
-otherwise builds it once from the KJV verse text and caches it.
 """
 import os
 import json
 import numpy as np
 
 _model = None
-_verse_refs = []       # parallel list: verse_refs[i] corresponds to _embeddings[i]
-_embeddings = None      # numpy array, shape (num_verses, embedding_dim)
+_verse_refs = []
+_embeddings = None
 
 EMBEDDINGS_DIR_DEFAULT = "embeddings"
 EMBEDDINGS_FILE = "verse_embeddings.npy"
@@ -25,9 +22,6 @@ def _get_model():
     if _model is None:
         from sentence_transformers import SentenceTransformer
         print(f"[Embeddings] Loading model '{MODEL_NAME}' (ONNX backend — low memory)...")
-        # ONNX backend avoids loading full PyTorch training graph, cutting
-        # memory footprint significantly vs the default torch backend —
-        # important for fitting inside constrained hosting (e.g. Render free tier).
         try:
             _model = SentenceTransformer(MODEL_NAME, backend="onnx")
         except Exception as e:
@@ -44,13 +38,7 @@ def _get_paths():
 
 
 def build_or_load_index(verses: dict, force_rebuild: bool = False):
-    """
-    verses: {reference: text} dict, typically the KJV translation from bible_loader.
-    Loads a cached index from disk if present, otherwise builds it (slow, one-time)
-    and saves it for instant loading on future startups.
-    """
     global _verse_refs, _embeddings
-
     emb_path, refs_path = _get_paths()
 
     if not force_rebuild and os.path.exists(emb_path) and os.path.exists(refs_path):
@@ -68,7 +56,6 @@ def build_or_load_index(verses: dict, force_rebuild: bool = False):
     refs = list(verses.keys())
     texts = list(verses.values())
 
-    # Batch-encode for speed
     vectors = model.encode(texts, batch_size=64, show_progress_bar=True,
                             convert_to_numpy=True, normalize_embeddings=True)
 
@@ -84,20 +71,13 @@ def build_or_load_index(verses: dict, force_rebuild: bool = False):
 
 
 def semantic_search(query_text: str, top_k: int = 3) -> list:
-    """
-    Returns top_k matches as [{"reference": str, "similarity": float}, ...],
-    sorted by similarity descending. similarity is cosine similarity in [-1, 1]
-    (typically [0, 1] for normalized sentence embeddings on related text).
-    """
     if _embeddings is None or not _verse_refs:
         return []
 
     model = _get_model()
     query_vec = model.encode([query_text], convert_to_numpy=True, normalize_embeddings=True)[0]
 
-    # Cosine similarity via dot product (embeddings are pre-normalized)
-    scores = _embeddings @ query_vec  # shape (num_verses,)
-
+    scores = _embeddings @ query_vec
     top_indices = np.argpartition(scores, -top_k)[-top_k:]
     top_indices = top_indices[np.argsort(scores[top_indices])[::-1]]
 

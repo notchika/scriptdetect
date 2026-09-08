@@ -1221,3 +1221,77 @@
   border-radius: 20px;
   white-space: nowrap;
 }
+
+/* ── History Panel ─────────────────────────────────────────────────────────── */
+
+.history-area {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.history-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: var(--navy-card);
+  border: 1px solid var(--navy-border);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.8rem;
+}
+
+.history-source-pill {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 20px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.hs-detect { background: var(--blue-bg); color: var(--blue-acc); }
+.hs-search { background: rgba(201,168,76,0.15); color: var(--gold); }
+
+.history-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-item-ref {
+  font-family: 'Lora', serif;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--white);
+}
+
+.history-item-query {
+  font-size: 11px;
+  color: var(--silver-dim);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-time {
+  font-size: 10px;
+  color: var(--silver-dim);
+  flex-shrink: 0;
+  white-space: nowrap;
+}

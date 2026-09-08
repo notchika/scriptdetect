@@ -14,6 +14,8 @@ from song_loader import load_songs, list_songs, search_songs, get_song, create_s
 from theme_loader import (load_themes, list_themes, get_theme, get_default_theme,
                            create_theme, update_theme, delete_theme, save_uploaded_image)
 from fastapi import File, UploadFile, Form
+from verse_embeddings import build_or_load_index, semantic_search, is_index_ready
+from history_loader import load_history, add_entry, get_history, clear_history
 
 load_dotenv()
 
@@ -267,6 +269,14 @@ async def lifespan(app: FastAPI):
     load_bibles()
     load_songs()
     load_themes()
+    load_history()
+
+    kjv_verses = get_all_verses("kjv")
+    if kjv_verses:
+        build_or_load_index(kjv_verses)
+    else:
+        print("[Embeddings] WARNING: KJV not loaded — local semantic search disabled, "
+              "falling back to Groq for all detections")
 
     for t in available_translations():
         verses = get_all_verses(t)
@@ -487,6 +497,9 @@ async def manual_search(ref: str, translation: str = "kjv"):
     translations = build_translation_lookup(final_ref)
     if not translations:
         raise HTTPException(status_code=404, detail=f"Reference '{ref}' not found in any translation.")
+
+    add_entry(reference=final_ref, source="search", query=ref)
+
     return {
         "reference": final_ref,
         "translations": translations
@@ -628,6 +641,43 @@ async def debug_lookup(ref: str, translation: str = "kjv"):
     }
 
 
+def local_semantic_detect(text: str) -> dict | None:
+    """
+    Fast local nearest-neighbor search over KJV verse embeddings. Returns a
+    detection dict matching Groq's output shape, or None if no match is
+    confident enough (caller should fall back to Groq in that case).
+    """
+    results = semantic_search(text, top_k=1)
+    if not results:
+        return None
+
+    top = results[0]
+    similarity = top["similarity"]
+    reference = top["reference"]
+
+    if similarity >= 0.80:
+        detection_type, confidence = "direct_quote", "high"
+    elif similarity >= 0.60:
+        detection_type, confidence = "paraphrase", "high"
+    elif similarity >= 0.45:
+        detection_type, confidence = "semantic_allusion", "medium"
+    else:
+        return None
+
+    translations = build_translation_lookup(reference)
+    if not translations:
+        return None
+
+    return {
+        "type": detection_type,
+        "reference": reference,
+        "detected_phrase": text.strip(),
+        "confidence": confidence,
+        "explanation": f"Matched locally via semantic similarity ({similarity:.2f}).",
+        "translations": translations
+    }
+
+
 @app.post("/detect")
 async def detect_scripture(req: DetectRequest):
     global latest_detection
@@ -649,14 +699,30 @@ async def detect_scripture(req: DetectRequest):
                 "translations": translations
             }
             push_to_overlay(detection)
+            add_entry(reference=ref, source="detection", detection_type="reference_call",
+                      confidence="high", query=req.text)
             return {
                 "detections": [detection],
                 "summary": f"Direct reference call to {ref}.",
-                "source": "local_lookup"   # tells frontend no Groq was used
+                "source": "local_lookup"
             }
-        # ref found but not in our JSON — fall through to Groq
+        # ref found but not in our JSON — fall through to local search / Groq
 
-    # ── Step 2: Semantic/paraphrase detection via Groq ────────────────────────
+    # ── Step 2: Local semantic search (instant, no network call) ──────────────
+    if is_index_ready():
+        local_result = local_semantic_detect(req.text)
+        if local_result:
+            push_to_overlay(local_result)
+            add_entry(reference=local_result["reference"], source="detection",
+                      detection_type=local_result["type"], confidence=local_result["confidence"],
+                      query=req.text)
+            return {
+                "detections": [local_result],
+                "summary": f"Detected via local semantic match: {local_result['reference']}.",
+                "source": "local_embedding"
+            }
+
+    # ── Step 3: Groq fallback ──────────────────────────────────────────────────
     api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured in .env")
@@ -703,7 +769,7 @@ async def detect_scripture(req: DetectRequest):
     if not_found:
         result["lookup_warnings"] = f"References not found in any translation: {', '.join(not_found)}"
 
-    # Push best detection to OBS overlay
+    # Push best detection to OBS overlay + log to history
     detections = result.get("detections", [])
     best = next(
         (d for d in detections if d.get("confidence") in ("high", "medium") and d.get("translations")),
@@ -711,11 +777,25 @@ async def detect_scripture(req: DetectRequest):
     )
     if best:
         push_to_overlay(best)
+        add_entry(reference=best.get("reference", ""), source="detection",
+                  detection_type=best.get("type"), confidence=best.get("confidence"),
+                  query=req.text)
     else:
         latest_detection = {}
 
     result["source"] = "groq"
     return result
+
+
+@app.get("/history")
+async def history_list(limit: int = 50):
+    return {"history": get_history(limit)}
+
+
+@app.delete("/history")
+async def history_clear():
+    clear_history()
+    return {"status": "cleared"}
 
 
 # ── Themes / Backgrounds ─────────────────────────────────────────────────────

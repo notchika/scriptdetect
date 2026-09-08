@@ -356,6 +356,8 @@ async function detectAndAppend(text) {
     results.scrollTop = results.scrollHeight;
     // No auto-reset — cards stay until manually cleared or individually dismissed
 
+    loadHistory(); // refresh history panel with the new entries just logged
+
   } catch (err) {
     document.getElementById(loaderId)?.remove();
     const eb = document.createElement('div');
@@ -546,6 +548,8 @@ async function manualSearch() {
         <div class="search-result-ref">${data.reference}</div>
         <div class="search-translations">${rows}</div>
       </div>`;
+
+    loadHistory(); // refresh history panel — this search was just logged
   } catch (err) {
     resultBox.innerHTML = `<div class="search-error">${err.message}</div>`;
   }
@@ -975,4 +979,75 @@ document.addEventListener('DOMContentLoaded', () => {
   loadThemes();
   const toggle = document.getElementById('autoSendToggle');
   if (toggle) toggle.checked = autoSendEnabled;
+});
+
+// ── History ─────────────────────────────────────────────────────────────────
+
+function timeAgo(unixTimestamp) {
+  const seconds = Math.floor(Date.now() / 1000 - unixTimestamp);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function historySourceLabel(entry) {
+  return entry.source === 'search' ? 'Searched' : 'Detected';
+}
+
+async function loadHistory() {
+  const listEl = document.getElementById('historyList');
+  if (!listEl) return;
+
+  try {
+    const res = await fetch('/history?limit=50');
+    const data = await res.json();
+    const entries = data.history || [];
+
+    if (!entries.length) {
+      listEl.innerHTML = '<div class="empty">No history yet — detections and searches will appear here.</div>';
+      return;
+    }
+
+    listEl.innerHTML = entries.map(e => `
+      <div class="history-item">
+        <span class="history-source-pill ${e.source === 'search' ? 'hs-search' : 'hs-detect'}">${historySourceLabel(e)}</span>
+        <div class="history-item-main">
+          <div class="history-item-ref">${e.reference}</div>
+          ${e.query ? `<div class="history-item-query">"${e.query.length > 60 ? e.query.slice(0, 60) + '…' : e.query}"</div>` : ''}
+        </div>
+        <span class="history-item-time">${timeAgo(e.timestamp)}</span>
+        <button class="btn-preview-sm" onclick="reSearchFromHistory('${e.reference.replace(/'/g, "\\\\'")}')">View</button>
+      </div>
+    `).join('');
+  } catch (err) {
+    listEl.innerHTML = `<div class="search-error">${err.message}</div>`;
+  }
+}
+
+function reSearchFromHistory(reference) {
+  const input = document.getElementById('manualSearchInput');
+  if (input) {
+    input.value = reference;
+    manualSearch();
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+async function clearHistoryConfirm() {
+  if (!confirm('Clear all history? This cannot be undone.')) return;
+  try {
+    await fetch('/history', { method: 'DELETE' });
+    loadHistory();
+  } catch (err) {
+    alert('Error clearing history: ' + err.message);
+  }
+}
+
+// Load history on page load, and refresh it after every detection/search
+document.addEventListener('DOMContentLoaded', () => {
+  loadHistory();
 });
