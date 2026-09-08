@@ -4,3 +4,4 @@ groq
 python-dotenv
 python-multipart
 numpy
+sentence-transformers[onnx]
