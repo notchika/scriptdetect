@@ -4,6 +4,8 @@ import re
 import uuid
 import shutil
 
+from paths import ROOT_DIR
+
 _themes: dict = {}
 
 THEMES_DIR_DEFAULT = "themes"
@@ -22,9 +24,8 @@ DEFAULT_THEME = {
 
 
 def _get_paths():
-    base = os.path.dirname(__file__)
-    themes_dir = os.path.join(base, THEMES_DIR_DEFAULT)
-    uploads_dir = os.path.join(base, UPLOADS_DIR_DEFAULT)
+    themes_dir = os.path.join(ROOT_DIR, THEMES_DIR_DEFAULT)
+    uploads_dir = os.path.join(ROOT_DIR, UPLOADS_DIR_DEFAULT)
     os.makedirs(themes_dir, exist_ok=True)
     os.makedirs(uploads_dir, exist_ok=True)
     return os.path.join(themes_dir, THEMES_FILE), uploads_dir

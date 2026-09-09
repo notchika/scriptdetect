@@ -3,6 +3,8 @@ import os
 import re
 import uuid
 
+from paths import ROOT_DIR
+
 _songs: dict = {}  # { song_id: {id, title, author, sections: [{label, lines}]} }
 
 SONGS_DIR_DEFAULT = "songs"
@@ -11,7 +13,7 @@ SONGS_FILE = "songs.json"
 
 def _get_path(songs_dir: str = None) -> str:
     if songs_dir is None:
-        songs_dir = os.path.join(os.path.dirname(__file__), SONGS_DIR_DEFAULT)
+        songs_dir = os.path.join(ROOT_DIR, SONGS_DIR_DEFAULT)
     os.makedirs(songs_dir, exist_ok=True)
     return os.path.join(songs_dir, SONGS_FILE)
 

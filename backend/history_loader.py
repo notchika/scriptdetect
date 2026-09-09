@@ -3,6 +3,8 @@ import os
 import time
 import uuid
 
+from paths import ROOT_DIR
+
 _history: list = []  # newest first
 
 HISTORY_DIR_DEFAULT = "history"
@@ -11,8 +13,7 @@ MAX_ENTRIES = 200  # cap growth — oldest entries drop off past this
 
 
 def _get_path():
-    base = os.path.dirname(__file__)
-    hist_dir = os.path.join(base, HISTORY_DIR_DEFAULT)
+    hist_dir = os.path.join(ROOT_DIR, HISTORY_DIR_DEFAULT)
     os.makedirs(hist_dir, exist_ok=True)
     return os.path.join(hist_dir, HISTORY_FILE)
 

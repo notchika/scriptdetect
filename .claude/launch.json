@@ -4,7 +4,7 @@
     {
       "name": "scriptdetect",
       "runtimeExecutable": "uvicorn",
-      "runtimeArgs": ["main:app", "--reload", "--port", "8000"],
+      "runtimeArgs": ["main:app", "--app-dir", "backend", "--reload", "--port", "8000"],
       "port": 8000
     }
   ]

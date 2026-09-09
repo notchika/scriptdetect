@@ -16,6 +16,7 @@ from theme_loader import (load_themes, list_themes, get_theme, get_default_theme
 from fastapi import File, UploadFile, Form
 from verse_embeddings import build_or_load_index, semantic_search, is_index_ready
 from history_loader import load_history, add_entry, get_history, clear_history
+from paths import ROOT_DIR, FRONTEND_DIR
 
 load_dotenv()
 
@@ -290,10 +291,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Scripture Detector", lifespan=lifespan)
 
 # Serve style.css and app.js as static files
-BASE_DIR = os.path.dirname(__file__)
-os.makedirs(os.path.join(BASE_DIR, "theme_uploads"), exist_ok=True)
-app.mount("/static", StaticFiles(directory=BASE_DIR), name="static")
-app.mount("/theme-images", StaticFiles(directory=os.path.join(BASE_DIR, "theme_uploads")), name="theme-images")
+os.makedirs(os.path.join(ROOT_DIR, "theme_uploads"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+app.mount("/theme-images", StaticFiles(directory=os.path.join(ROOT_DIR, "theme_uploads")), name="theme-images")
 
 app.add_middleware(
     CORSMiddleware,
@@ -330,7 +330,7 @@ Rules:
 - If nothing found: {"detections": [], "summary": "No specific scripture references detected."}
 - Return ONLY the JSON object, nothing else"""
 
-TRANSLATIONS = ["kjv", "niv", "nkjv", "nlt", "amp"]
+TRANSLATIONS = ["kjv", "niv", "nkjv", "nlt", "amp", "asv", "cjb", "web"]
 
 
 def build_translation_lookup(ref: str) -> dict:
@@ -376,31 +376,31 @@ class DetectRequest(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    with open(os.path.join(BASE_DIR, "index.html")) as f:
+    with open(os.path.join(FRONTEND_DIR, "index.html")) as f:
         return f.read()
 
 @app.get("/style.css")
 async def styles():
-    response = FileResponse(os.path.join(BASE_DIR, "style.css"), media_type="text/css")
+    response = FileResponse(os.path.join(FRONTEND_DIR, "style.css"), media_type="text/css")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
 
 @app.get("/app.js")
 async def scripts():
-    response = FileResponse(os.path.join(BASE_DIR, "app.js"), media_type="application/javascript")
+    response = FileResponse(os.path.join(FRONTEND_DIR, "app.js"), media_type="application/javascript")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
 
 
 @app.get("/overlay", response_class=HTMLResponse)
 async def overlay():
-    with open(os.path.join(os.path.dirname(__file__), "overlay.html")) as f:
+    with open(os.path.join(FRONTEND_DIR, "overlay.html")) as f:
         return f.read()
 
 
 @app.get("/live", response_class=HTMLResponse)
 async def live_page():
-    with open(os.path.join(os.path.dirname(__file__), "live.html")) as f:
+    with open(os.path.join(FRONTEND_DIR, "live.html")) as f:
         return f.read()
 
 
@@ -609,7 +609,7 @@ async def debug_files():
     Shows exactly what files Render sees in the bibles/ folder at runtime.
     Use this to diagnose missing-translation issues on deployment.
     """
-    bible_dir = os.path.join(BASE_DIR, "bibles")
+    bible_dir = os.path.join(ROOT_DIR, "bibles")
     if not os.path.isdir(bible_dir):
         return {"error": f"bibles/ directory not found at {bible_dir}"}
 
@@ -867,5 +867,5 @@ async def themes_upload_image(file: UploadFile = File(...)):
 
 @app.get("/confidence", response_class=HTMLResponse)
 async def confidence_page():
-    with open(os.path.join(BASE_DIR, "confidence.html")) as f:
+    with open(os.path.join(FRONTEND_DIR, "confidence.html")) as f:
         return f.read()

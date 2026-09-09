@@ -2,7 +2,9 @@ import json
 import os
 import re
 
-TRANSLATIONS = ["kjv", "amp", "nlt", "niv", "nkjv", "cjb", "asv", "web"]
+from paths import ROOT_DIR
+
+TRANSLATIONS = ["kjv", "amp", "nlt", "niv", "nkjv", "asv", "cjb", "web"]
 
 # { "kjv": {"Genesis 1:1": "In the beginning..."}, ... }
 _bibles: dict = {}
@@ -14,7 +16,7 @@ _verse_index: dict = {}
 
 def load_bibles(bible_dir: str = None):
     if bible_dir is None:
-        bible_dir = os.path.join(os.path.dirname(__file__), "bibles")
+        bible_dir = os.path.join(ROOT_DIR, "bibles")
 
     if not os.path.isdir(bible_dir):
         raise FileNotFoundError(

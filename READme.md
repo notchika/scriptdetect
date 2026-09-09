@@ -21,7 +21,7 @@ pip install -r requirements.txt
 
 ```bash
 export ANTHROPIC_API_KEY=your_key_here
-uvicorn main:app --reload --port 8000
+uvicorn main:app --app-dir backend --reload --port 8000
 ```
 
 Then open http://localhost:8000

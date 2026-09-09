@@ -7,6 +7,8 @@ import os
 import json
 import numpy as np
 
+from paths import ROOT_DIR
+
 _model = None
 _verse_refs = []
 _embeddings = None
@@ -31,8 +33,7 @@ def _get_model():
 
 
 def _get_paths():
-    base = os.path.dirname(__file__)
-    emb_dir = os.path.join(base, EMBEDDINGS_DIR_DEFAULT)
+    emb_dir = os.path.join(ROOT_DIR, EMBEDDINGS_DIR_DEFAULT)
     os.makedirs(emb_dir, exist_ok=True)
     return os.path.join(emb_dir, EMBEDDINGS_FILE), os.path.join(emb_dir, REFS_FILE)
 

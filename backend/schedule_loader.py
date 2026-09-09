@@ -2,6 +2,8 @@ import json
 import os
 import uuid
 
+from paths import ROOT_DIR
+
 _schedules: dict = {}  # { schedule_id: {id, name, date, items: [ {id, kind, ...} ]} }
 
 SCHEDULES_DIR_DEFAULT = "schedules"
@@ -16,7 +18,7 @@ ITEM_KINDS = ("scripture", "song", "announcement")
 
 def _get_path(schedules_dir: str = None) -> str:
     if schedules_dir is None:
-        schedules_dir = os.path.join(os.path.dirname(__file__), SCHEDULES_DIR_DEFAULT)
+        schedules_dir = os.path.join(ROOT_DIR, SCHEDULES_DIR_DEFAULT)
     os.makedirs(schedules_dir, exist_ok=True)
     return os.path.join(schedules_dir, SCHEDULES_FILE)
 
