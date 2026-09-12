@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
@@ -22,6 +23,8 @@ load_dotenv()
 
 latest_detection: dict = {}
 live_slide: dict = {}  # what's currently shown on the full-screen /live output
+live_queue: list = []  # operator rundown, persisted in schedules/live_queue.json
+_last_ref_ctx = {"book": None, "chapter": None}
 
 # ── Reference call pattern ────────────────────────────────────────────────────
 # Matches phrases like:
@@ -247,7 +250,7 @@ def extract_direct_reference(text: str):
 
     match = REFERENCE_PATTERN.search(normalized_text)
     if not match:
-        return None, None
+        return extract_contextual_verse(text)
 
     book_raw = match.group(1)
     chapter = match.group(2)
@@ -261,6 +264,46 @@ def extract_direct_reference(text: str):
     else:
         ref = f"{book} {chapter}:{verse_start}"
 
+    remember_reference(ref)
+    return ref, match.group(0).strip()
+
+
+def remember_reference(ref: str):
+    """Remember book + chapter so a later 'verse 10' can resolve."""
+    match = re.match(r"^(.*?)\s+(\d+):(\d+)", (ref or "").strip())
+    if match:
+        _last_ref_ctx["book"] = match.group(1)
+        _last_ref_ctx["chapter"] = match.group(2)
+
+
+BARE_VERSE_PATTERN = re.compile(
+    r"""
+    (?:^|[\s,;])
+    (?:
+        (?:let['']?s\s+(?:have|read|look\s+at|go\s+to|open\s+to)|
+         turn\s+to|go\s+to|read|open\s+to)\s+
+    )?
+    verses?\s+
+    (?=(\d+))\1
+    (?:\s*-\s*(?=(\d+))\2)?
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def extract_contextual_verse(text: str):
+    """Resolve 'verse 10' against the last book/chapter the operator or speaker used."""
+    if not _last_ref_ctx["book"] or not _last_ref_ctx["chapter"]:
+        return None, None
+    normalized = _normalize_ordinal_words(text)
+    normalized = _normalize_spelled_numbers(normalized)
+    match = BARE_VERSE_PATTERN.search(" " + normalized)
+    if not match:
+        return None, None
+    start, end = match.group(1), match.group(2)
+    book, chapter = _last_ref_ctx["book"], _last_ref_ctx["chapter"]
+    ref = f"{book} {chapter}:{start}-{end}" if end else f"{book} {chapter}:{start}"
+    remember_reference(ref)
     return ref, match.group(0).strip()
 
 
@@ -271,6 +314,7 @@ async def lifespan(app: FastAPI):
     load_songs()
     load_themes()
     load_history()
+    _load_queue()
 
     kjv_verses = get_all_verses("kjv")
     if kjv_verses:
@@ -424,16 +468,12 @@ async def live_send(req: SendLiveRequest):
     global live_slide
     theme = get_theme(req.theme_id) or get_default_theme()
 
-    live_slide = {
-        "reference": req.reference,
-        "text": req.text,
-        "translation": req.translation,
-        "visible": True,
-        "theme": theme,
-        "kind": req.kind,
-        "song_id": req.song_id,
-        "section_index": req.section_index,
-    }
+    live_slide = _make_live_slide(
+        req.reference, req.text, req.translation, theme,
+        req.kind, req.song_id, req.section_index,
+    )
+    if req.kind == "scripture":
+        remember_reference(req.reference)
     return {"status": "sent", "slide": live_slide}
 
 
@@ -442,6 +482,77 @@ async def live_clear():
     global live_slide
     live_slide = {}
     return {"status": "cleared"}
+
+
+class QueueItemIn(BaseModel):
+    reference: str
+    text: str
+    translation: str = "KJV"
+    kind: str = "scripture"
+    song_id: str = ""
+    section_index: int = 0
+
+
+class QueueReorderIn(BaseModel):
+    ids: list[str]
+
+
+@app.get("/queue")
+async def queue_list():
+    return {"items": live_queue}
+
+
+@app.post("/queue")
+async def queue_add(item: QueueItemIn):
+    entry = {"id": uuid.uuid4().hex[:8], **item.model_dump()}
+    live_queue.append(entry)
+    _save_queue()
+    return {"items": live_queue, "added": entry}
+
+
+@app.delete("/queue/{item_id}")
+async def queue_remove(item_id: str):
+    global live_queue
+    before = len(live_queue)
+    live_queue = [item for item in live_queue if item.get("id") != item_id]
+    if len(live_queue) == before:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+    _save_queue()
+    return {"items": live_queue}
+
+
+@app.post("/queue/clear")
+async def queue_clear():
+    live_queue.clear()
+    _save_queue()
+    return {"items": []}
+
+
+@app.post("/queue/reorder")
+async def queue_reorder(req: QueueReorderIn):
+    global live_queue
+    by_id = {item.get("id"): item for item in live_queue}
+    live_queue = [by_id[i] for i in req.ids if i in by_id]
+    _save_queue()
+    return {"items": live_queue}
+
+
+@app.post("/queue/next")
+async def queue_next():
+    global live_slide
+    if not live_queue:
+        raise HTTPException(status_code=404, detail="Queue is empty")
+    item = live_queue.pop(0)
+    _save_queue()
+    theme = live_slide.get("theme") or get_theme("default_black") or get_default_theme()
+    live_slide = _make_live_slide(
+        item["reference"], item["text"], item.get("translation", "KJV"), theme,
+        item.get("kind", "scripture"), item.get("song_id", ""),
+        item.get("section_index", 0),
+    )
+    if live_slide.get("kind") == "scripture":
+        remember_reference(live_slide["reference"])
+    return {"status": "sent", "slide": live_slide, "items": live_queue}
 
 
 @app.get("/live/next-preview")
@@ -484,26 +595,89 @@ async def live_next_preview():
     return {}
 
 
-@app.get("/search")
-async def manual_search(ref: str, translation: str = "kjv"):
-    """
-    Direct manual lookup — operator types OR speaks a reference (same natural
-    phrasing the live detector understands), gets instant result from local
-    JSON with ALL 5 translations included, no Groq call needed.
-    """
-    normalized_ref = ref.strip()
-    direct_ref, _ = extract_direct_reference(normalized_ref)
-    final_ref = direct_ref if direct_ref else normalized_ref
-    translations = build_translation_lookup(final_ref)
-    if not translations:
-        raise HTTPException(status_code=404, detail=f"Reference '{ref}' not found in any translation.")
+def _queue_path() -> str:
+    folder = os.path.join(ROOT_DIR, "schedules")
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, "live_queue.json")
 
-    add_entry(reference=final_ref, source="search", query=ref)
 
+def _load_queue():
+    global live_queue
+    path = _queue_path()
+    if not os.path.exists(path):
+        live_queue = []
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        live_queue = data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        live_queue = []
+
+
+def _save_queue():
+    with open(_queue_path(), "w", encoding="utf-8") as f:
+        json.dump(live_queue, f, indent=2, ensure_ascii=False)
+
+
+def _make_live_slide(reference, text, translation, theme, kind="scripture",
+                     song_id="", section_index=0):
     return {
-        "reference": final_ref,
-        "translations": translations
+        "reference": reference,
+        "text": text,
+        "translation": translation,
+        "visible": True,
+        "theme": theme,
+        "kind": kind,
+        "song_id": song_id,
+        "section_index": section_index,
     }
+
+
+@app.get("/search")
+async def manual_search(ref: str = "", q: str = "", translation: str = "kjv"):
+    """
+    Operator search. A citation (or a contextual 'verse 10') looks up the
+    verse. Anything else runs meaning search over the local embedding index.
+    """
+    query = (ref or q).strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Search query cannot be empty")
+
+    direct_ref, _ = extract_direct_reference(query)
+    final_ref = direct_ref or (query if re.search(r"\d+:\d+", query) else None)
+    if final_ref:
+        translations = build_translation_lookup(final_ref)
+        if translations:
+            remember_reference(final_ref)
+            add_entry(reference=final_ref, source="search", query=query)
+            return {
+                "mode": "reference",
+                "reference": final_ref,
+                "translations": translations,
+            }
+
+    if not is_index_ready():
+        raise HTTPException(status_code=404, detail=f"No matches for '{query}'.")
+
+    hits = semantic_search(query, top_k=8)
+    results = []
+    for hit in hits:
+        translations = build_translation_lookup(hit["reference"])
+        if not translations:
+            continue
+        results.append({
+            "reference": hit["reference"],
+            "similarity": hit.get("similarity", 0),
+            "combined": hit.get("combined", hit.get("similarity", 0)),
+            "translations": translations,
+        })
+    if not results:
+        raise HTTPException(status_code=404, detail=f"No matches for '{query}'.")
+
+    remember_reference(results[0]["reference"])
+    add_entry(reference=results[0]["reference"], source="search", query=query)
+    return {"mode": "meaning", "query": query, "results": results}
 
 
 @app.get("/verse-nav")
@@ -654,6 +828,7 @@ def local_semantic_detect(text: str) -> dict | None:
     top = results[0]
     similarity = top["similarity"]
     reference = top["reference"]
+    remember_reference(reference)
 
     if similarity >= 0.80:
         detection_type, confidence = "direct_quote", "high"
@@ -673,7 +848,12 @@ def local_semantic_detect(text: str) -> dict | None:
         "reference": reference,
         "detected_phrase": text.strip(),
         "confidence": confidence,
-        "explanation": f"Matched locally via semantic similarity ({similarity:.2f}).",
+        "explanation": (
+            f"Matched locally via semantic similarity ({similarity:.2f}"
+            + (f", rerank {top.get('combined', similarity):.2f}" if "combined" in top else "")
+            + ")."
+        ),
+        "source": "local_embedding",
         "translations": translations
     }
 
@@ -696,6 +876,7 @@ async def detect_scripture(req: DetectRequest):
                 "detected_phrase": phrase,
                 "confidence": "high",
                 "explanation": f"Explicit scripture reference called directly.",
+                "source": "local_lookup",
                 "translations": translations
             }
             push_to_overlay(detection)
@@ -710,7 +891,11 @@ async def detect_scripture(req: DetectRequest):
 
     # ── Step 2: Local semantic search (instant, no network call) ──────────────
     if is_index_ready():
-        local_result = local_semantic_detect(req.text)
+        try:
+            local_result = local_semantic_detect(req.text)
+        except Exception as e:
+            print(f"[Detect] Local semantic search failed: {e}")
+            local_result = None
         if local_result:
             push_to_overlay(local_result)
             add_entry(reference=local_result["reference"], source="detection",
@@ -762,7 +947,10 @@ async def detect_scripture(req: DetectRequest):
     not_found = []
     for detection in result.get("detections", []):
         ref = detection.get("reference", "")
+        detection["source"] = "groq"
         detection["translations"] = build_translation_lookup(ref)
+        if detection.get("reference"):
+            remember_reference(detection["reference"])
         if not detection["translations"]:
             not_found.append(ref)
 

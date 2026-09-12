@@ -23,19 +23,62 @@ let currentLiveTranslation = 'KJV';
 let selectedThemeId = 'default_black';
 let allThemesCache = [];
 
-// Auto-send: when enabled, high-confidence detections go live automatically,
-// no manual "Send to Live" click needed. Persisted across sessions.
+// Auto-send: only explicit references and high-confidence direct quotes,
+// with a cooldown so slides do not flicker. Persisted across sessions.
 let autoSendEnabled = localStorage.getItem('autoSendEnabled') === 'true';
+const AUTO_SEND_COOLDOWN_MS = 8000;
+let lastAutoSendAt = 0;
+let primaryTranslation = localStorage.getItem('primaryTranslation') || 'KJV';
+let stagedPreview = null;
+let queueItems = [];
 
 function toggleAutoSend() {
   autoSendEnabled = document.getElementById('autoSendToggle').checked;
   localStorage.setItem('autoSendEnabled', autoSendEnabled);
 }
 
+function onPrimaryTranslationChanged() {
+  const sel = document.getElementById('primaryTranslation');
+  if (!sel) return;
+  primaryTranslation = sel.value;
+  localStorage.setItem('primaryTranslation', primaryTranslation);
+}
+
+function displayText(translations) {
+  if (!translations) return '';
+  return translations[primaryTranslation] || translations.KJV || Object.values(translations)[0] || '';
+}
+
+function shouldAutoSend(detection) {
+  if (!autoSendEnabled) return false;
+  if (Date.now() - lastAutoSendAt < AUTO_SEND_COOLDOWN_MS) return false;
+  if (detection.type === 'reference_call') return true;
+  return detection.type === 'direct_quote' && detection.confidence === 'high';
+}
+
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 function getMinConfidence() {
   return document.getElementById('confidenceFilter')?.value || 'medium';
+}
+
+async function parseJsonResponse(res) {
+  const raw = await res.text();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const plain = raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    throw new Error(plain.slice(0, 240) || `Request failed (${res.status})`);
+  }
+}
+
+function errorDetail(data) {
+  const detail = data && data.detail;
+  if (Array.isArray(detail)) {
+    return detail.map(item => item.msg || JSON.stringify(item)).join('; ');
+  }
+  return detail || '';
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -221,11 +264,11 @@ function buildTranslationsBlock(translations, id) {
 
   return `
     <div class="translations-section">
-      <div class="translations-toggle open" onclick="toggleTranslations('${bodyId}', this)">
+      <div class="translations-toggle" onclick="toggleTranslations('${bodyId}', this)">
         <span>All Translations (${hasAny ? Object.keys(translations).length : 0} / ${ALL_TRANSLATIONS.length})</span>
         <span class="toggle-arrow">&#9660;</span>
       </div>
-      <div class="translations-body open" id="${bodyId}">
+      <div class="translations-body" id="${bodyId}">
         ${rows}
       </div>
     </div>`;
@@ -271,12 +314,10 @@ async function detectAndAppend(text) {
 
     document.getElementById(loaderId)?.remove();
 
+    const data = await parseJsonResponse(res);
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Detection failed');
+      throw new Error(errorDetail(data) || 'Detection failed');
     }
-
-    const data = await res.json();
     const dets = data.detections || [];
 
     if (!dets.length) {
@@ -317,9 +358,8 @@ async function detectAndAppend(text) {
 
       const cardId = `card-${cardCounter}`;
       const trans = d.translations || {};
-      const kjvText = trans.KJV || Object.values(trans)[0] || '';
-
-      const willAutoSend = autoSendEnabled && d.confidence === 'high';
+      const verseText = displayText(trans);
+      const willAutoSend = shouldAutoSend(d);
 
       const card = document.createElement('div');
       card.className = 'detection-card' + (willAutoSend ? ' auto-sent' : '');
@@ -329,26 +369,31 @@ async function detectAndAppend(text) {
           <span class="type-pill tp-${d.type}">${typeLabel(d.type)}</span>
           <span class="ref-text">${d.reference || ''}</span>
           <span class="confidence-badge cb-${d.confidence}">${d.confidence}</span>
-          ${willAutoSend ? '<span class="auto-sent-badge">&#9889; Auto-sent</span>' : ''}
+          ${willAutoSend ? '<span class="auto-sent-badge">Auto-sent</span>' : ''}
           <button class="card-delete-btn" onclick="deleteCard('${cardId}', ${cardCounter - 1})" title="Dismiss">&#x2715;</button>
         </div>
         <div class="detection-body">
           <div class="phrase-block">"${d.detected_phrase || ''}"</div>
           ${d.explanation ? `<div class="expl">${d.explanation}</div>` : ''}
           <div class="card-actions-row">
-            <button class="btn-preview" onclick='previewSlide(${JSON.stringify(d.reference || "")}, ${JSON.stringify(kjvText)}, "KJV")'>
-              &#128065; Preview
+            <button class="btn-preview" onclick='previewSlide(${JSON.stringify(d.reference || "")}, ${JSON.stringify(verseText)}, ${JSON.stringify(primaryTranslation)})'>
+              Preview
             </button>
-            <button class="btn-send-live" onclick='sendToLive(${JSON.stringify(d.reference || "")}, ${JSON.stringify(kjvText)}, "KJV")'>
-              &#9658; Send to Live
+            <button class="btn-sm" onclick='addToQueue(${JSON.stringify(d.reference || "")}, ${JSON.stringify(verseText)}, ${JSON.stringify(primaryTranslation)})'>
+              + Queue
+            </button>
+            <button class="btn-send-live" onclick='sendToLive(${JSON.stringify(d.reference || "")}, ${JSON.stringify(verseText)}, ${JSON.stringify(primaryTranslation)})'>
+              Send Live
             </button>
           </div>
           ${buildTranslationsBlock(d.translations, cardCounter)}
         </div>`;
       results.appendChild(card);
 
+      previewSlide(d.reference || '', verseText, primaryTranslation);
       if (willAutoSend) {
-        sendToLive(d.reference || '', kjvText, 'KJV');
+        lastAutoSendAt = Date.now();
+        sendToLive(d.reference || '', verseText, primaryTranslation);
       }
     });
 
@@ -405,9 +450,10 @@ async function sendToLive(reference, text, translation, kind = 'scripture', song
 
     const liveStatus = document.getElementById('liveStatus');
     if (liveStatus) {
-      liveStatus.innerHTML = `Live: <strong>${reference}</strong> (${translation}) &nbsp;&mdash;&nbsp; use &larr; / &rarr; to navigate`;
+      liveStatus.innerHTML = `Live: <strong>${reference}</strong> (${translation}) &nbsp;&mdash;&nbsp; &larr; / &rarr; verses, N = queue next`;
       liveStatus.classList.add('active');
     }
+    renderStageLive({ reference, text, translation });
   } catch (err) {
     console.error('sendToLive error:', err);
   }
@@ -422,6 +468,7 @@ async function clearLive() {
       liveStatus.textContent = 'No live slide active';
       liveStatus.classList.remove('active');
     }
+    renderStageLive(null);
   } catch (err) {
     console.error('clearLive error:', err);
   }
@@ -467,6 +514,7 @@ document.addEventListener('keydown', e => {
 
   if (e.key === 'ArrowRight') { e.preventDefault(); navigateVerse('next'); }
   if (e.key === 'ArrowLeft')  { e.preventDefault(); navigateVerse('prev'); }
+  if (e.key === 'n' || e.key === 'N') { e.preventDefault(); sendQueueNext(); }
 });
 
 // ── Manual search — text or voice, all 5 translations shown ───────────────────
@@ -525,31 +573,50 @@ async function manualSearch() {
       throw new Error(err.detail || 'Not found');
     }
 
-    const data = await res.json();
-    const translations = data.translations || {};
+    const data = await parseJsonResponse(res);
+    if (!res.ok) throw new Error(errorDetail(data) || 'Not found');
 
-    const rows = ALL_TRANSLATIONS.map(t => {
-      const text = translations[t];
-      return `
-        <div class="translation-row search-translation-row">
-          <span class="trans-label">${t}</span>
-          ${text
-            ? `<span class="trans-text">${text}</span>
-               <button class="btn-preview-sm" onclick='previewSlide(${JSON.stringify(data.reference)}, ${JSON.stringify(text)}, "${t}")'>Preview</button>
-               <button class="btn-send-live-sm" onclick='sendToLive(${JSON.stringify(data.reference)}, ${JSON.stringify(text)}, "${t}")'>
-                 Send Live
-               </button>`
-            : `<span class="trans-missing">Not loaded</span>`}
+    if (data.mode === 'meaning') {
+      resultBox.innerHTML = (data.results || []).map(hit => {
+        const text = displayText(hit.translations);
+        return `
+          <div class="search-result-card">
+            <div class="search-result-ref">${hit.reference}
+              <span class="confidence-badge cb-medium">${Math.round((hit.combined || hit.similarity || 0) * 100)}%</span>
+            </div>
+            <div class="queue-item-text">${text}</div>
+            <div class="queue-item-actions">
+              <button class="btn-preview-sm" onclick='previewSlide(${JSON.stringify(hit.reference)}, ${JSON.stringify(text)}, ${JSON.stringify(primaryTranslation)})'>Preview</button>
+              <button class="btn-sm" onclick='addToQueue(${JSON.stringify(hit.reference)}, ${JSON.stringify(text)}, ${JSON.stringify(primaryTranslation)})'>+ Queue</button>
+              <button class="btn-send-live-sm" onclick='sendToLive(${JSON.stringify(hit.reference)}, ${JSON.stringify(text)}, ${JSON.stringify(primaryTranslation)})'>Send Live</button>
+            </div>
+          </div>`;
+      }).join('');
+    } else {
+      const translations = data.translations || {};
+      const text = displayText(translations);
+      previewSlide(data.reference, text, primaryTranslation);
+      const rows = ALL_TRANSLATIONS.map(t => {
+        const verse = translations[t];
+        return `
+          <div class="translation-row search-translation-row">
+            <span class="trans-label">${t}</span>
+            ${verse
+              ? `<span class="trans-text">${verse}</span>
+                 <button class="btn-preview-sm" onclick='previewSlide(${JSON.stringify(data.reference)}, ${JSON.stringify(verse)}, "${t}")'>Preview</button>
+                 <button class="btn-sm" onclick='addToQueue(${JSON.stringify(data.reference)}, ${JSON.stringify(verse)}, "${t}")'>+</button>
+                 <button class="btn-send-live-sm" onclick='sendToLive(${JSON.stringify(data.reference)}, ${JSON.stringify(verse)}, "${t}")'>Live</button>`
+              : `<span class="trans-missing">Not loaded</span>`}
+          </div>`;
+      }).join('');
+      resultBox.innerHTML = `
+        <div class="search-result-card">
+          <div class="search-result-ref">${data.reference}</div>
+          <div class="search-translations">${rows}</div>
         </div>`;
-    }).join('');
+    }
 
-    resultBox.innerHTML = `
-      <div class="search-result-card">
-        <div class="search-result-ref">${data.reference}</div>
-        <div class="search-translations">${rows}</div>
-      </div>`;
-
-    loadHistory(); // refresh history panel — this search was just logged
+    loadHistory();
   } catch (err) {
     resultBox.innerHTML = `<div class="search-error">${err.message}</div>`;
   }
@@ -949,36 +1016,196 @@ function toggleThemeBgFields() {
 
 // ── Preview (renders exactly like /live but never touches server state) ──────
 
-function previewSlide(reference, text, translation) {
-  const theme = allThemesCache.find(t => t.id === selectedThemeId) || {
+function currentTheme() {
+  return allThemesCache.find(t => t.id === selectedThemeId) || {
     bg_type: 'color', bg_value: '#000000', text_color: '#FFFFFF',
     accent_color: '#C9A84C', overlay_opacity: 0.4
   };
+}
+
+function applyThemeToStage(bgId, dimId, textId, refId, transId, slide) {
+  const theme = slide && slide.theme ? slide.theme : currentTheme();
+  const bg = document.getElementById(bgId);
+  const dim = document.getElementById(dimId);
+  const textEl = document.getElementById(textId);
+  const refEl = document.getElementById(refId);
+  const transEl = document.getElementById(transId);
+  if (!bg || !textEl) return;
 
   const bgStyle = theme.bg_type === 'image'
     ? `background:url('/theme-images/${theme.bg_value}') center/cover no-repeat;`
-    : `background:${theme.bg_value};`;
+    : `background:${theme.bg_value || '#000'};`;
+  bg.style.cssText = bgStyle;
+  if (dim) dim.style.background = `rgba(0,0,0,${theme.overlay_opacity ?? 0.4})`;
+  textEl.textContent = (slide && slide.text) || 'Nothing staged';
+  textEl.style.color = theme.text_color || '#FFFFFF';
+  if (refEl) {
+    refEl.textContent = (slide && slide.reference) || '';
+    refEl.style.color = theme.accent_color || '#C9A84C';
+  }
+  if (transEl) transEl.textContent = (slide && slide.translation) || '';
+}
 
-  document.getElementById('previewBgLayer').style.cssText = bgStyle;
-  document.getElementById('previewOverlayLayer').style.background = `rgba(0,0,0,${theme.overlay_opacity ?? 0.4})`;
-  document.getElementById('previewText').textContent = text || '';
-  document.getElementById('previewText').style.color = theme.text_color || '#FFFFFF';
-  document.getElementById('previewRef').textContent = reference || '';
-  document.getElementById('previewRef').style.color = theme.accent_color || '#C9A84C';
-  document.getElementById('previewTranslation').textContent = translation || '';
+function previewSlide(reference, text, translation, openModal = false) {
+  stagedPreview = { reference, text, translation };
+  applyThemeToStage(
+    'stagePreviewBg', 'stagePreviewDim',
+    'stagePreviewText', 'stagePreviewRef', 'stagePreviewTranslation',
+    stagedPreview
+  );
 
-  document.getElementById('previewOverlay').classList.add('visible');
+  const modalBg = document.getElementById('previewBgLayer');
+  if (modalBg) {
+    const theme = currentTheme();
+    const bgStyle = theme.bg_type === 'image'
+      ? `background:url('/theme-images/${theme.bg_value}') center/cover no-repeat;`
+      : `background:${theme.bg_value};`;
+    modalBg.style.cssText = bgStyle;
+    document.getElementById('previewOverlayLayer').style.background = `rgba(0,0,0,${theme.overlay_opacity ?? 0.4})`;
+    document.getElementById('previewText').textContent = text || '';
+    document.getElementById('previewText').style.color = theme.text_color || '#FFFFFF';
+    document.getElementById('previewRef').textContent = reference || '';
+    document.getElementById('previewRef').style.color = theme.accent_color || '#C9A84C';
+    document.getElementById('previewTranslation').textContent = translation || '';
+    if (openModal) document.getElementById('previewOverlay').classList.add('visible');
+  }
+}
+
+function enlargePreview() {
+  if (stagedPreview) previewSlide(stagedPreview.reference, stagedPreview.text, stagedPreview.translation, true);
+}
+
+function sendStagedPreview() {
+  if (!stagedPreview) return;
+  sendToLive(stagedPreview.reference, stagedPreview.text, stagedPreview.translation);
+}
+
+function renderStageLive(slide) {
+  applyThemeToStage(
+    'stageLiveBg', 'stageLiveDim',
+    'stageLiveText', 'stageLiveRef', 'stageLiveTranslation',
+    slide && (slide.reference || slide.text) ? slide : null
+  );
 }
 
 function closePreview() {
   document.getElementById('previewOverlay').classList.remove('visible');
 }
 
+async function loadQueue() {
+  const listEl = document.getElementById('queueList');
+  if (!listEl) return;
+  try {
+    const res = await fetch('/queue');
+    const data = await parseJsonResponse(res);
+    queueItems = data.items || [];
+    renderQueue();
+  } catch (err) {
+    listEl.innerHTML = `<div class="search-error">${err.message}</div>`;
+  }
+}
+
+function renderQueue() {
+  const listEl = document.getElementById('queueList');
+  if (!listEl) return;
+  if (!queueItems.length) {
+    listEl.innerHTML = '<div class="empty">Preload verses here before the sermon.</div>';
+    return;
+  }
+  listEl.innerHTML = queueItems.map(item => `
+    <div class="queue-item">
+      <div class="queue-item-top">
+        <span class="queue-item-ref">${item.reference}</span>
+        <span class="queue-item-actions">
+          <button class="btn-send-live-sm" onclick='sendToLive(${JSON.stringify(item.reference)}, ${JSON.stringify(item.text)}, ${JSON.stringify(item.translation || "KJV")})'>Live</button>
+          <button class="btn-sm" onclick="removeQueueItem('${item.id}')">X</button>
+        </span>
+      </div>
+      <div class="queue-item-text">${item.text || ''}</div>
+    </div>
+  `).join('');
+}
+
+async function addToQueue(reference, text, translation) {
+  try {
+    const res = await fetch('/queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reference, text, translation })
+    });
+    const data = await parseJsonResponse(res);
+    if (!res.ok) throw new Error(errorDetail(data) || 'Could not add to queue');
+    queueItems = data.items || [];
+    renderQueue();
+  } catch (err) {
+    console.error('addToQueue', err);
+  }
+}
+
+async function removeQueueItem(itemId) {
+  try {
+    const res = await fetch(`/queue/${itemId}`, { method: 'DELETE' });
+    const data = await parseJsonResponse(res);
+    queueItems = data.items || [];
+    renderQueue();
+  } catch (err) {
+    console.error('removeQueueItem', err);
+  }
+}
+
+async function clearQueue() {
+  if (!queueItems.length) return;
+  await fetch('/queue/clear', { method: 'POST' });
+  queueItems = [];
+  renderQueue();
+}
+
+async function sendQueueNext() {
+  try {
+    const res = await fetch('/queue/next', { method: 'POST' });
+    const data = await parseJsonResponse(res);
+    if (!res.ok) throw new Error(errorDetail(data) || 'Queue is empty');
+    queueItems = data.items || [];
+    renderQueue();
+    const slide = data.slide || {};
+    currentLiveRef = slide.kind === 'scripture' ? slide.reference : null;
+    currentLiveTranslation = slide.translation || primaryTranslation;
+    renderStageLive(slide);
+    const liveStatus = document.getElementById('liveStatus');
+    if (liveStatus) {
+      liveStatus.innerHTML = `Live: <strong>${slide.reference || ''}</strong> (${slide.translation || ''})`;
+      liveStatus.classList.add('active');
+    }
+  } catch (err) {
+    const liveStatus = document.getElementById('liveStatus');
+    if (liveStatus) liveStatus.textContent = err.message;
+  }
+}
+
+async function refreshLiveStage() {
+  try {
+    const res = await fetch('/live/current');
+    const slide = await parseJsonResponse(res);
+    if (slide && slide.visible) {
+      renderStageLive(slide);
+      currentLiveRef = slide.kind === 'scripture' ? slide.reference : currentLiveRef;
+      currentLiveTranslation = slide.translation || currentLiveTranslation;
+    }
+  } catch (err) {
+    /* booth live pane is best-effort */
+  }
+}
+
 // Load themes and restore auto-send toggle state on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadThemes();
+  loadQueue();
+  refreshLiveStage();
+  setInterval(refreshLiveStage, 2500);
   const toggle = document.getElementById('autoSendToggle');
   if (toggle) toggle.checked = autoSendEnabled;
+  const primary = document.getElementById('primaryTranslation');
+  if (primary) primary.value = primaryTranslation;
 });
 
 // ── History ─────────────────────────────────────────────────────────────────

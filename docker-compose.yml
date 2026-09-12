@@ -1,0 +1,26 @@
+services:
+  scriptdetect:
+    build: .
+    image: scriptdetect
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    # Everything the app writes at runtime. Without these, songs, themes,
+    # schedules, detection history and uploaded background images are lost
+    # whenever the container is replaced. Named volumes are seeded from the
+    # image on first run, so the default theme still ships as a starting point.
+    volumes:
+      - songs:/app/songs
+      - themes:/app/themes
+      - schedules:/app/schedules
+      - history:/app/history
+      - theme_uploads:/app/theme_uploads
+    restart: unless-stopped
+
+volumes:
+  songs:
+  themes:
+  schedules:
+  history:
+  theme_uploads:

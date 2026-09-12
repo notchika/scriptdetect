@@ -1,0 +1,25 @@
+# Secrets — GROQ_API_KEY is passed in as an env var at runtime, never baked in
+.env
+
+.git
+.gitignore
+.claude
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Rebuilt inside the image at build time
+embeddings/
+
+# Runtime state — supplied by volumes
+history/
+theme_uploads/
+
+# Not needed by the app
+READme.md
+render.yaml
+Dockerfile
+docker-compose.yml
+.dockerignore

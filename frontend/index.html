@@ -6,60 +6,192 @@
 <title>Live Scripture Detector</title>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,600&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-
 </head>
-<body>
-<div class="container">
+<body class="booth-page">
+<div class="container booth">
 
-  <div class="header">
+  <div class="header booth-header">
     <h1>Live Scripture Detector</h1>
-    <p>Speak any Bible verse &mdash; even paraphrased</p>
+    <p>Operator booth &mdash; detect, stage, queue, send live</p>
   </div>
 
   <div class="toolbar">
-    <a class="toolbar-btn" href="/overlay" target="_blank">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-      OBS Overlay
-    </a>
+    <a class="toolbar-btn" href="/overlay" target="_blank">OBS Overlay</a>
+    <a class="toolbar-btn" href="/live" target="_blank">Live Output</a>
+    <button class="toolbar-btn" onclick="clearLive()">Clear Live</button>
     <button class="toolbar-btn" id="clipboardBtn" onclick="copyLastToClipboard()" disabled>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-      <span id="clipboardBtnLabel">Copy Last Detection</span>
+      <span id="clipboardBtnLabel">Copy Last</span>
     </button>
     <div class="confidence-filter">
-      <label for="confidenceFilter">Min confidence:</label>
+      <label for="confidenceFilter">Min confidence</label>
       <select id="confidenceFilter">
         <option value="high">High only</option>
         <option value="medium" selected>High &amp; Medium</option>
         <option value="low">All results</option>
       </select>
     </div>
-    <a class="toolbar-btn" href="/live" target="_blank">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-      Live Output
-    </a>
-    <button class="toolbar-btn" onclick="clearLive()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg>
-      Clear Live Screen
-    </button>
-    <a class="toolbar-btn" href="/confidence" target="_blank">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-      Confidence Monitor
-    </a>
+    <div class="confidence-filter">
+      <label for="primaryTranslation">Primary</label>
+      <select id="primaryTranslation" onchange="onPrimaryTranslationChanged()">
+        <option>KJV</option>
+        <option>NIV</option>
+        <option>NKJV</option>
+        <option>NLT</option>
+        <option>AMP</option>
+        <option>ASV</option>
+        <option>CJB</option>
+        <option>WEB</option>
+      </select>
+    </div>
     <select class="translation-select" id="themeSelect" onchange="onThemeSelected()"></select>
-
-    <label class="auto-send-toggle" title="High-confidence detections go live automatically, no click needed">
+    <label class="auto-send-toggle" title="Auto-send only explicit references and high-confidence direct quotes, with an 8s cooldown">
       <input type="checkbox" id="autoSendToggle" onchange="toggleAutoSend()">
       <span class="auto-send-slider"></span>
-      <span class="auto-send-label">Auto-send high confidence</span>
+      <span class="auto-send-label">Auto-send refs &amp; quotes</span>
     </label>
-    <button class="toolbar-btn" onclick="openThemeManager()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
-      Manage Themes
-    </button>
-    <div class="toolbar-hint" id="overlayHint">OBS: add Browser Source → <span id="overlayUrl"></span></div>
+    <button class="toolbar-btn" onclick="openThemeManager()">Themes</button>
+    <div class="toolbar-hint" id="overlayHint">OBS Browser Source → <span id="overlayUrl"></span></div>
   </div>
 
-  <!-- Theme manager modal -->
+  <div class="booth-grid">
+    <section class="panel panel-transcript">
+      <div class="panel-head">
+        <span>Transcript</span>
+        <button class="mic-btn" id="micBtn" onclick="toggleMic()">
+          <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="2" width="6" height="11" rx="3"/>
+            <path d="M5 10a7 7 0 0 0 14 0"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="8" y1="22" x2="16" y2="22"/>
+          </svg>
+          <span id="micLabel">Listen</span>
+        </button>
+      </div>
+      <div class="panel-body">
+        <div class="status-line" id="statusLine">Click Listen and speak, or type</div>
+        <textarea class="transcript-box" id="transcriptBox"
+          placeholder="Speech and typed text land here&hellip;" rows="6"></textarea>
+        <div class="transcript-actions">
+          <button class="btn-sm" onclick="clearAll()">Clear</button>
+          <button class="btn-sm btn-detect-sm" onclick="detect()">Detect</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel-stage">
+      <div class="panel-head"><span>Preview / Live</span></div>
+      <div class="panel-body stage-body">
+        <div class="stage-col">
+          <div class="transcript-label">Preview</div>
+          <div class="stage-frame" id="stagePreviewFrame">
+            <div id="stagePreviewBg" class="stage-bg"></div>
+            <div id="stagePreviewDim" class="stage-dim"></div>
+            <div class="stage-copy">
+              <div class="stage-verse" id="stagePreviewText">Nothing staged</div>
+              <div class="stage-ref" id="stagePreviewRef"></div>
+              <div class="stage-trans" id="stagePreviewTranslation"></div>
+            </div>
+          </div>
+          <div class="stage-actions">
+            <button class="btn-sm btn-detect-sm" onclick="sendStagedPreview()">Send preview live</button>
+            <button class="btn-sm" onclick="enlargePreview()">Enlarge</button>
+          </div>
+        </div>
+        <div class="stage-col">
+          <div class="transcript-label">Live now</div>
+          <div class="stage-frame stage-live" id="stageLiveFrame">
+            <div id="stageLiveBg" class="stage-bg"></div>
+            <div id="stageLiveDim" class="stage-dim"></div>
+            <div class="stage-copy">
+              <div class="stage-verse" id="stageLiveText">No live slide</div>
+              <div class="stage-ref" id="stageLiveRef"></div>
+              <div class="stage-trans" id="stageLiveTranslation"></div>
+            </div>
+          </div>
+          <div class="live-status" id="liveStatus">No live slide active</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel-queue">
+      <div class="panel-head">
+        <span>Queue</span>
+        <span class="panel-actions">
+          <button class="btn-sm btn-detect-sm" onclick="sendQueueNext()">Next (N)</button>
+          <button class="btn-sm" onclick="clearQueue()">Clear</button>
+        </span>
+      </div>
+      <div class="panel-body">
+        <div class="queue-list" id="queueList">
+          <div class="empty">Preload verses here before the sermon.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel-search">
+      <div class="panel-head"><span>Search</span></div>
+      <div class="panel-body">
+        <div class="manual-search-area">
+          <div class="manual-search-row">
+            <input type="text" id="manualSearchInput"
+              placeholder="John 3:16, verse 10, or love your neighbor"
+              onkeydown="if(event.key==='Enter') manualSearch()">
+            <button class="search-mic-btn" id="searchMicBtn" onclick="searchByVoice()" title="Search by voice">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="2" width="6" height="11" rx="3"/>
+                <path d="M5 10a7 7 0 0 0 14 0"/>
+                <line x1="12" y1="19" x2="12" y2="22"/>
+                <line x1="8" y1="22" x2="16" y2="22"/>
+              </svg>
+            </button>
+            <button class="btn-sm btn-detect-sm" onclick="manualSearch()">Search</button>
+          </div>
+          <div class="search-hint">Citations look up a verse. Other phrases search by meaning.</div>
+          <div class="manual-search-result" id="manualSearchResult"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel-detections">
+      <div class="panel-head"><span>Detections</span></div>
+      <div class="panel-body">
+        <div class="error-box" id="errorBox"></div>
+        <div class="spinner" id="spinner"><div class="spinner-ring"></div><span>Detecting scripture&hellip;</span></div>
+        <div class="results" id="results">
+          <div class="empty">Detections will appear here</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <details class="library-drawer">
+    <summary>Library &mdash; history, songs, try examples</summary>
+    <div class="library-inner">
+      <div class="examples-row">
+        <span style="font-size:11px;color:var(--silver-dim);align-self:center">Try:</span>
+        <button class="ex-chip" onclick="loadEx(0)">John 3:16</button>
+        <button class="ex-chip" onclick="loadEx(1)">Psalm 23 allusion</button>
+        <button class="ex-chip" onclick="loadEx(2)">Prodigal son</button>
+        <button class="ex-chip" onclick="loadEx(3)">Sermon excerpt</button>
+      </div>
+      <div class="history-area">
+        <div class="history-header-row">
+          <div class="transcript-label">History</div>
+          <button class="btn-sm" onclick="clearHistoryConfirm()">Clear History</button>
+        </div>
+        <div class="history-list" id="historyList"></div>
+      </div>
+      <div class="song-library-area">
+        <div class="transcript-label">Song Library</div>
+        <div class="manual-search-row">
+          <input type="text" id="songSearchInput" placeholder="Search songs by title or author&hellip;" oninput="songSearchDebounced()">
+          <button class="btn-sm btn-detect-sm" onclick="openSongEditor()">+ Add Song</button>
+        </div>
+        <div class="song-list" id="songList"></div>
+      </div>
+    </div>
+  </details>
+
   <div class="song-editor-overlay" id="themeManagerOverlay">
     <div class="song-editor-modal">
       <div class="song-editor-header">
@@ -68,48 +200,38 @@
       </div>
       <div class="song-editor-body">
         <div id="themeManagerList" class="theme-manager-list"></div>
-
         <div class="theme-new-form">
           <div class="transcript-label">Add New Theme</div>
           <input type="text" id="newThemeName" placeholder="Theme name" class="song-editor-input">
-
           <select id="newThemeBgType" class="song-editor-input" onchange="toggleThemeBgFields()">
             <option value="color">Solid Color</option>
             <option value="gradient">CSS Gradient</option>
             <option value="image">Image Upload</option>
           </select>
-
           <div id="themeColorField">
             <label class="theme-field-label">Background Color</label>
             <input type="color" id="newThemeColorValue" value="#0E1829" class="theme-color-input">
           </div>
-
           <div id="themeGradientField" style="display:none;">
             <label class="theme-field-label">CSS Gradient</label>
             <input type="text" id="newThemeGradientValue" placeholder="linear-gradient(135deg, #1a1a2e, #16213e)" class="song-editor-input">
           </div>
-
           <div id="themeImageField" style="display:none;">
             <label class="theme-field-label">Background Image</label>
             <input type="file" id="newThemeImageFile" accept="image/*" class="song-editor-input">
           </div>
-
           <label class="theme-field-label">Text Color</label>
           <input type="color" id="newThemeTextColor" value="#FFFFFF" class="theme-color-input">
-
           <label class="theme-field-label">Accent Color (reference text)</label>
           <input type="color" id="newThemeAccentColor" value="#C9A84C" class="theme-color-input">
-
-          <label class="theme-field-label">Dark Overlay Opacity (readability over images/gradients)</label>
+          <label class="theme-field-label">Dark Overlay Opacity</label>
           <input type="range" id="newThemeOverlay" min="0" max="0.8" step="0.05" value="0.4">
-
           <button class="btn-sm btn-detect-sm" onclick="createThemeFromForm()">Create Theme</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Live preview modal (renders exactly like /live, never sends to server) -->
   <div class="preview-overlay" id="previewOverlay">
     <div class="preview-container">
       <button class="preview-close-btn" onclick="closePreview()">&#x2715; Close Preview</button>
@@ -122,51 +244,10 @@
           <div class="preview-verse-translation" id="previewTranslation"></div>
         </div>
       </div>
-      <div class="preview-hint">This is a preview only — nothing has been sent to the live output.</div>
+      <div class="preview-hint">Enlarged preview only &mdash; the live output is unchanged.</div>
     </div>
   </div>
 
-  <div class="live-status" id="liveStatus">No live slide active</div>
-
-  <div class="manual-search-area">
-    <div class="transcript-label">Manual Scripture Search</div>
-    <div class="manual-search-row">
-      <input type="text" id="manualSearchInput" placeholder="e.g. John 3:16 or 'let's have John 3:16'" onkeydown="if(event.key==='Enter') manualSearch()">
-      <button class="search-mic-btn" id="searchMicBtn" onclick="searchByVoice()" title="Search by voice">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="9" y="2" width="6" height="11" rx="3"/>
-          <path d="M5 10a7 7 0 0 0 14 0"/>
-          <line x1="12" y1="19" x2="12" y2="22"/>
-          <line x1="8" y1="22" x2="16" y2="22"/>
-        </svg>
-      </button>
-      <button class="btn-sm btn-detect-sm" onclick="manualSearch()">Search</button>
-    </div>
-    <div class="manual-search-result" id="manualSearchResult"></div>
-  </div>
-
-  <div class="divider"></div>
-
-  <div class="history-area">
-    <div class="history-header-row">
-      <div class="transcript-label">History</div>
-      <button class="btn-sm" onclick="clearHistoryConfirm()">Clear History</button>
-    </div>
-    <div class="history-list" id="historyList"></div>
-  </div>
-
-  <div class="divider"></div>
-
-  <div class="song-library-area">
-    <div class="transcript-label">Song Library</div>
-    <div class="manual-search-row">
-      <input type="text" id="songSearchInput" placeholder="Search songs by title or author&hellip;" oninput="songSearchDebounced()">
-      <button class="btn-sm btn-detect-sm" onclick="openSongEditor()">+ Add Song</button>
-    </div>
-    <div class="song-list" id="songList"></div>
-  </div>
-
-  <!-- Song editor modal -->
   <div class="song-editor-overlay" id="songEditorOverlay">
     <div class="song-editor-modal">
       <div class="song-editor-header">
@@ -186,49 +267,7 @@
     </div>
   </div>
 
-  <div class="controls">
-    <button class="mic-btn" id="micBtn" onclick="toggleMic()">
-      <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="9" y="2" width="6" height="11" rx="3"/>
-        <path d="M5 10a7 7 0 0 0 14 0"/>
-        <line x1="12" y1="19" x2="12" y2="22"/>
-        <line x1="8" y1="22" x2="16" y2="22"/>
-      </svg>
-      <span id="micLabel">Start Listening</span>
-    </button>
-  </div>
-
-  <div class="status-line" id="statusLine">Click the button and speak</div>
-
-  <div class="transcript-area">
-    <div class="transcript-label">Transcript</div>
-    <textarea class="transcript-box" id="transcriptBox"
-      placeholder="Transcribed speech will appear here, or type / paste text directly&hellip;" rows="4"></textarea>
-    <div class="transcript-actions">
-      <button class="btn-sm" onclick="clearAll()">Clear</button>
-      <button class="btn-sm btn-detect-sm" onclick="detect()">Detect Scripture</button>
-    </div>
-  </div>
-
-  <div class="examples-row">
-    <span style="font-size:11px;color:var(--silver-dim);align-self:center">Try:</span>
-    <button class="ex-chip" onclick="loadEx(0)">John 3:16</button>
-    <button class="ex-chip" onclick="loadEx(1)">Psalm 23 allusion</button>
-    <button class="ex-chip" onclick="loadEx(2)">Prodigal son</button>
-    <button class="ex-chip" onclick="loadEx(3)">Sermon excerpt</button>
-  </div>
-
-  <div class="divider"></div>
-
-  <div class="error-box" id="errorBox"></div>
-  <div class="spinner" id="spinner"><div class="spinner-ring"></div><span>Detecting scripture&hellip;</span></div>
-
-  <div class="results" id="results">
-    <div class="empty">Detections will appear here</div>
-  </div>
-
 </div>
-
 <script src="app.js"></script>
 </body>
 </html>
