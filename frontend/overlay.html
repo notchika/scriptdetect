@@ -152,10 +152,11 @@ function typeLabel(t) {
 function showVerse(data) {
   if (!data.reference || !data.text) return;
 
-  // Don't re-show the same verse while it's already visible
-  if (data.reference === currentRef && el.card.classList.contains('visible')) return;
+  // Same verse in a new translation should replace the card, not be ignored
+  const nextKey = `${data.reference}|${data.translation || ''}|${data.text || ''}`;
+  if (nextKey === currentRef && el.card.classList.contains('visible')) return;
 
-  currentRef = data.reference;
+  currentRef = nextKey;
 
   el.type.textContent = typeLabel(data.type);
   el.ref.textContent = data.reference;

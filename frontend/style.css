@@ -1502,6 +1502,61 @@ body.booth-page {
   color: var(--silver-dim);
 }
 
+.trans-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  min-height: 1.4rem;
+}
+
+.trans-chip {
+  background: transparent;
+  border: 1px solid var(--navy-border);
+  border-radius: 20px;
+  color: var(--silver-dim);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+}
+
+.trans-chip:hover { border-color: var(--gold); color: var(--gold); }
+.trans-chip.active {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--gold-glow);
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--navy-card-inner);
+  border: 1px solid var(--navy-border);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.55rem;
+}
+
+.recent-item-ref {
+  font-family: 'Lora', serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.recent-item-meta {
+  font-size: 10px;
+  color: var(--silver-dim);
+}
+
 .panel-detections .results {
   width: 100%;
   gap: 0.55rem;
@@ -1514,16 +1569,54 @@ body.booth-page {
   border: 1px solid var(--navy-border);
   border-radius: var(--radius);
   background: var(--navy-card);
-  padding: 0.4rem 0.85rem 0.85rem;
+  padding: 0.25rem 0.55rem 0.35rem;
+}
+
+.library-drawer[open] {
+  padding-bottom: 0.85rem;
 }
 
 .library-drawer summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   cursor: pointer;
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--silver-dim);
-  padding: 0.45rem 0;
+  padding: 0.4rem 0.15rem;
+  list-style: none;
+}
+
+.library-drawer summary::-webkit-details-marker,
+.library-drawer summary::marker {
+  display: none;
+  content: '';
+}
+
+.library-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--navy-border);
+  border-radius: 50%;
+  color: var(--gold);
+  background: var(--navy-card-inner);
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.library-drawer summary:hover .library-toggle {
+  border-color: var(--gold);
+  background: var(--gold-glow);
+}
+
+.library-drawer[open] .library-toggle {
+  transform: rotate(180deg);
 }
 
 .library-inner {

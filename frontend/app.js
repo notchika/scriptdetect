@@ -31,6 +31,7 @@ let lastAutoSendAt = 0;
 let primaryTranslation = localStorage.getItem('primaryTranslation') || 'KJV';
 let stagedPreview = null;
 let queueItems = [];
+const translationCache = {}; // reference -> { KJV: text, NIV: text, ... }
 
 function toggleAutoSend() {
   autoSendEnabled = document.getElementById('autoSendToggle').checked;
@@ -42,6 +43,59 @@ function onPrimaryTranslationChanged() {
   if (!sel) return;
   primaryTranslation = sel.value;
   localStorage.setItem('primaryTranslation', primaryTranslation);
+  if (stagedPreview && stagedPreview.reference) {
+    switchPreviewTranslation(primaryTranslation);
+  }
+  if (currentLiveRef) {
+    switchLiveTranslation(primaryTranslation);
+  }
+}
+
+function cacheTranslations(reference, translations) {
+  if (!reference || !translations || !Object.keys(translations).length) return;
+  translationCache[reference] = translations;
+}
+
+async function ensureTranslations(reference) {
+  if (!reference) return {};
+  if (translationCache[reference]) return translationCache[reference];
+  try {
+    const res = await fetch(`/search?ref=${encodeURIComponent(reference)}`);
+    const data = await parseJsonResponse(res);
+    if (data.translations) cacheTranslations(reference, data.translations);
+  } catch (err) {
+    console.error('ensureTranslations', err);
+  }
+  return translationCache[reference] || {};
+}
+
+function renderTransSwitch(containerId, activeTranslation, onClickName, reference) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!reference) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = ALL_TRANSLATIONS.map(t => `
+    <button type="button" class="trans-chip${t === activeTranslation ? ' active' : ''}"
+      onclick="${onClickName}('${t}')">${t}</button>
+  `).join('');
+}
+
+async function switchPreviewTranslation(translation) {
+  if (!stagedPreview || !stagedPreview.reference) return;
+  const texts = await ensureTranslations(stagedPreview.reference);
+  const text = texts[translation];
+  if (!text) return;
+  previewSlide(stagedPreview.reference, text, translation);
+}
+
+async function switchLiveTranslation(translation) {
+  if (!currentLiveRef) return;
+  const texts = await ensureTranslations(currentLiveRef);
+  const text = texts[translation];
+  if (!text) return;
+  await sendToLive(currentLiveRef, text, translation);
 }
 
 function displayText(translations) {
@@ -390,6 +444,7 @@ async function detectAndAppend(text) {
         </div>`;
       results.appendChild(card);
 
+      cacheTranslations(d.reference, trans);
       previewSlide(d.reference || '', verseText, primaryTranslation);
       if (willAutoSend) {
         lastAutoSendAt = Date.now();
@@ -454,6 +509,8 @@ async function sendToLive(reference, text, translation, kind = 'scripture', song
       liveStatus.classList.add('active');
     }
     renderStageLive({ reference, text, translation });
+    renderTransSwitch('liveTransSwitch', translation, 'switchLiveTranslation', kind === 'scripture' ? reference : '');
+    if (kind === 'scripture' && reference) ensureTranslations(reference);
   } catch (err) {
     console.error('sendToLive error:', err);
   }
@@ -469,6 +526,7 @@ async function clearLive() {
       liveStatus.classList.remove('active');
     }
     renderStageLive(null);
+    renderTransSwitch('liveTransSwitch', '', 'switchLiveTranslation', '');
   } catch (err) {
     console.error('clearLive error:', err);
   }
@@ -500,6 +558,7 @@ async function navigateVerse(direction) {
     }
 
     const data = await res.json();
+    if (data.translations) cacheTranslations(data.reference, data.translations);
     await sendToLive(data.reference, data.text, currentLiveTranslation);
   } catch (err) {
     console.error('navigateVerse error:', err);
@@ -577,6 +636,7 @@ async function manualSearch() {
     if (!res.ok) throw new Error(errorDetail(data) || 'Not found');
 
     if (data.mode === 'meaning') {
+      (data.results || []).forEach(hit => cacheTranslations(hit.reference, hit.translations));
       resultBox.innerHTML = (data.results || []).map(hit => {
         const text = displayText(hit.translations);
         return `
@@ -594,6 +654,7 @@ async function manualSearch() {
       }).join('');
     } else {
       const translations = data.translations || {};
+      cacheTranslations(data.reference, translations);
       const text = displayText(translations);
       previewSlide(data.reference, text, primaryTranslation);
       const rows = ALL_TRANSLATIONS.map(t => {
@@ -1069,6 +1130,8 @@ function previewSlide(reference, text, translation, openModal = false) {
     document.getElementById('previewTranslation').textContent = translation || '';
     if (openModal) document.getElementById('previewOverlay').classList.add('visible');
   }
+  renderTransSwitch('previewTransSwitch', translation, 'switchPreviewTranslation', reference);
+  if (reference) ensureTranslations(reference);
 }
 
 function enlargePreview() {
@@ -1171,6 +1234,8 @@ async function sendQueueNext() {
     currentLiveRef = slide.kind === 'scripture' ? slide.reference : null;
     currentLiveTranslation = slide.translation || primaryTranslation;
     renderStageLive(slide);
+    renderTransSwitch('liveTransSwitch', slide.translation || primaryTranslation, 'switchLiveTranslation',
+      slide.kind === 'scripture' ? slide.reference : '');
     const liveStatus = document.getElementById('liveStatus');
     if (liveStatus) {
       liveStatus.innerHTML = `Live: <strong>${slide.reference || ''}</strong> (${slide.translation || ''})`;
@@ -1190,6 +1255,8 @@ async function refreshLiveStage() {
       renderStageLive(slide);
       currentLiveRef = slide.kind === 'scripture' ? slide.reference : currentLiveRef;
       currentLiveTranslation = slide.translation || currentLiveTranslation;
+      renderTransSwitch('liveTransSwitch', slide.translation || '', 'switchLiveTranslation',
+        slide.kind === 'scripture' ? slide.reference : '');
     }
   } catch (err) {
     /* booth live pane is best-effort */
@@ -1225,14 +1292,65 @@ function historySourceLabel(entry) {
   return entry.source === 'search' ? 'Searched' : 'Detected';
 }
 
+function renderRecentSearches(entries) {
+  const listEl = document.getElementById('recentSearchList');
+  if (!listEl) return;
+
+  const seen = new Set();
+  const recents = [];
+  for (const entry of entries) {
+    const ref = (entry.reference || '').trim();
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+    recents.push(entry);
+    if (recents.length >= 12) break;
+  }
+
+  if (!recents.length) {
+    listEl.innerHTML = '<div class="empty">Searched verses will stay listed here.</div>';
+    return;
+  }
+
+  listEl.innerHTML = recents.map(e => {
+    const safeRef = JSON.stringify(e.reference);
+    return `
+      <div class="recent-item">
+        <div class="recent-item-main">
+          <div class="recent-item-ref">${e.reference}</div>
+          <div class="recent-item-meta">${historySourceLabel(e)} · ${timeAgo(e.timestamp)}</div>
+        </div>
+        <span class="queue-item-actions">
+          <button class="btn-preview-sm" onclick='openRecent(${safeRef})'>Open</button>
+          <button class="btn-send-live-sm" onclick='sendRecentLive(${safeRef})'>Live</button>
+        </span>
+      </div>`;
+  }).join('');
+}
+
+async function openRecent(reference) {
+  const input = document.getElementById('manualSearchInput');
+  if (input) input.value = reference;
+  await manualSearch();
+}
+
+async function sendRecentLive(reference) {
+  const texts = await ensureTranslations(reference);
+  const text = texts[primaryTranslation] || texts.KJV || Object.values(texts)[0];
+  if (!text) return;
+  previewSlide(reference, text, primaryTranslation);
+  await sendToLive(reference, text, primaryTranslation);
+}
+
 async function loadHistory() {
   const listEl = document.getElementById('historyList');
-  if (!listEl) return;
 
   try {
     const res = await fetch('/history?limit=50');
     const data = await res.json();
     const entries = data.history || [];
+    renderRecentSearches(entries);
+
+    if (!listEl) return;
 
     if (!entries.length) {
       listEl.innerHTML = '<div class="empty">No history yet — detections and searches will appear here.</div>';
@@ -1251,7 +1369,8 @@ async function loadHistory() {
       </div>
     `).join('');
   } catch (err) {
-    listEl.innerHTML = `<div class="search-error">${err.message}</div>`;
+    renderRecentSearches([]);
+    if (listEl) listEl.innerHTML = `<div class="search-error">${err.message}</div>`;
   }
 }
 

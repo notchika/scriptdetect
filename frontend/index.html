@@ -92,6 +92,7 @@
               <div class="stage-trans" id="stagePreviewTranslation"></div>
             </div>
           </div>
+          <div class="trans-switch" id="previewTransSwitch"></div>
           <div class="stage-actions">
             <button class="btn-sm btn-detect-sm" onclick="sendStagedPreview()">Send preview live</button>
             <button class="btn-sm" onclick="enlargePreview()">Enlarge</button>
@@ -108,6 +109,7 @@
               <div class="stage-trans" id="stageLiveTranslation"></div>
             </div>
           </div>
+          <div class="trans-switch" id="liveTransSwitch"></div>
           <div class="live-status" id="liveStatus">No live slide active</div>
         </div>
       </div>
@@ -148,6 +150,10 @@
           </div>
           <div class="search-hint">Citations look up a verse. Other phrases search by meaning.</div>
           <div class="manual-search-result" id="manualSearchResult"></div>
+          <div class="transcript-label">Recent searches</div>
+          <div class="recent-list" id="recentSearchList">
+            <div class="empty">Searched verses will stay listed here.</div>
+          </div>
         </div>
       </div>
     </section>
@@ -165,7 +171,14 @@
   </div>
 
   <details class="library-drawer">
-    <summary>Library &mdash; history, songs, try examples</summary>
+    <summary>
+      <span>Library &mdash; history, songs, try examples</span>
+      <span class="library-toggle" aria-hidden="true" title="Open library">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </span>
+    </summary>
     <div class="library-inner">
       <div class="examples-row">
         <span style="font-size:11px;color:var(--silver-dim);align-self:center">Try:</span>

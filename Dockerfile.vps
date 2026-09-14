@@ -8,18 +8,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Large wheels are fetched on the host into docker-cache/ because pip inside
-# Docker has been truncating them on this network. Torch must use the CPU
-# wheel; `pip install torch` on Linux otherwise pulls CUDA (~2.5 GB).
-COPY docker-cache/*.whl /tmp/wheels/
+# Unlike the local Dockerfile, this one has no docker-cache/ to copy from: that
+# directory is gitignored, so it never reaches the server. Wheels come straight
+# from the network instead, which is reliable on a datacentre connection.
+# Torch must come from the CPU index; plain `pip install torch` pulls CUDA (~2.5 GB).
 COPY requirements.txt ./
-RUN mv /tmp/wheels/torch-cpu.whl \
-        /tmp/wheels/torch-2.14.0+cpu-cp311-cp311-manylinux_2_28_x86_64.whl \
- && pip install --no-cache-dir \
-        /tmp/wheels/torch-2.14.0+cpu-cp311-cp311-manylinux_2_28_x86_64.whl \
- && pip install --no-cache-dir --find-links /tmp/wheels \
-        --default-timeout=1000 --retries 20 -r requirements.txt \
- && rm -rf /tmp/wheels
+RUN pip install --no-cache-dir --default-timeout=1000 --retries 10 \
+        --index-url https://download.pytorch.org/whl/cpu torch \
+ && pip install --no-cache-dir --default-timeout=1000 --retries 10 -r requirements.txt
 
 # Bake the embedding model in, so startup never depends on huggingface.co being
 # reachable. Exporting it here also means the ONNX backend is genuinely used at
@@ -31,6 +27,7 @@ COPY backend/ ./backend/
 
 # Precompute the KJV semantic index. Without this the first boot after every
 # deploy blocks for several minutes while it encodes 31k verses.
+# This step is the build's memory high-water mark — give the box 4 GB or swap.
 # Frontend/songs/themes are copied after this so a booth UI tweak does not
 # re-encode 31k verses.
 RUN python -c "import sys; sys.path.insert(0, 'backend'); \

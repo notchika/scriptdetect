@@ -1,0 +1,12 @@
+# SITE_ADDRESS comes from .env, e.g. scripture.mychurch.org
+# Caddy provisions and renews a Let's Encrypt certificate for it automatically.
+# HTTPS is not optional here: the booth's Listen button and voice search use the
+# Web Speech API, which browsers disable outside a secure context.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	reverse_proxy scriptdetect:8000 {
+		# /live and /overlay poll continuously; keep them from being buffered.
+		flush_interval -1
+	}
+}

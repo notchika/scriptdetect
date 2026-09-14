@@ -108,7 +108,11 @@
 
 <script>
 const POLL_INTERVAL = 1000; // check for live slide changes every second
-let currentRef = null;
+let currentSlideKey = null;
+
+function slideKey(data) {
+  return [data.reference || '', data.translation || '', data.text || ''].join('|');
+}
 
 async function poll() {
   try {
@@ -120,16 +124,17 @@ async function poll() {
 
     if (!data || !data.visible || !data.reference) {
       // Blackout — clear screen
-      if (currentRef !== null) {
+      if (currentSlideKey !== null) {
         slideEl.classList.remove('visible');
-        currentRef = null;
+        currentSlideKey = null;
       }
       return;
     }
 
-    // Only re-render if the content actually changed
-    if (data.reference !== currentRef) {
-      currentRef = data.reference;
+    // Re-render when the verse, translation, or wording changes
+    const nextKey = slideKey(data);
+    if (nextKey !== currentSlideKey) {
+      currentSlideKey = nextKey;
       document.getElementById('verseText').textContent = data.text || '';
       document.getElementById('verseRef').textContent = data.reference || '';
       document.getElementById('verseTranslation').textContent = data.translation || '';

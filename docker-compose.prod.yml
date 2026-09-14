@@ -1,0 +1,48 @@
+# VPS deployment. Differs from docker-compose.yml in three ways:
+#   - builds from Dockerfile.vps, which does not need the local docker-cache/
+#   - the app is not published to the host; only Caddy is reachable from outside
+#   - Caddy terminates TLS, which the Web Speech API requires for mic input
+services:
+  scriptdetect:
+    build:
+      context: .
+      dockerfile: Dockerfile.vps
+    image: scriptdetect:vps
+    env_file:
+      - .env
+    expose:
+      - "8000"
+    # Everything the app writes at runtime. Without these, songs, themes,
+    # schedules, detection history and uploaded background images are lost
+    # whenever the container is replaced.
+    volumes:
+      - songs:/app/songs
+      - themes:/app/themes
+      - schedules:/app/schedules
+      - history:/app/history
+      - theme_uploads:/app/theme_uploads
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - SITE_ADDRESS=${SITE_ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - scriptdetect
+    restart: unless-stopped
+
+volumes:
+  songs:
+  themes:
+  schedules:
+  history:
+  theme_uploads:
+  caddy_data:
+  caddy_config:

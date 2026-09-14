@@ -21,5 +21,8 @@ theme_uploads/
 READme.md
 render.yaml
 Dockerfile
+Dockerfile.vps
 docker-compose.yml
+docker-compose.prod.yml
+Caddyfile
 .dockerignore
